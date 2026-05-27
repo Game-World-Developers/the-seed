@@ -1,21 +1,51 @@
 # The Seed
 
-> The Seed is a high performance, deterministic runtime SDK for building 3D Games and virtual worlds.
+The Seed is a **project generator** for C++ applications built with an **ECS-to-DoD** (Entity Component System to Data-oriented Design) architecture.
 
-It's not a monolithic **game-engine** or **editor**.
+The generated projects are deterministic, modular runtime SDKs suitable for simulations, games, and virtual worlds.
 
-The Seed is a distributed as a set of _binaries_, _libraries_, and _tools_ that provides the core runtime, rendering audio, event-execution, script integration, and platform abstraction required to create interactive worlds.
+This project is inspired by [World Seed](https://swordartonline.fandom.com/wiki/World_Seed) from [Sword Art Online](https://pt.wikipedia.org/wiki/Sword_Art_Online).
 
-This project is highly inspired on [World-Seed](https://swordartonline.fandom.com/wiki/World_Seed) of [Sword Art Online](https://pt.wikipedia.org/wiki/Sword_Art_Online)
+## Quickstart
 
-## Core
+```bash
+go run main.go
+# or
+make run
+```
 
-The core is written on C++ with strong focus on _performance_, _determinism_, and a long-term stability.
+Build the binary:
 
-Scripting Languages is used to describe rules, events and configurations only at startup - never registering heavy - logic or adopt real-time execution.
+```bash
+make build
+./build/seed
+```
 
-## Concept
+Run tests:
 
-The Seed is designed to be: - Deterministic and Fast as **Default** - Modular and linkable as **Runtime SDK** - Suitable for both **client** and **headless/server** execution - Fully multiplatform
+```bash
+make tests
+```
 
-Keep "The-Seed" as agnostic to gameplay, narrative, and World-Specific logic.
+## Repository Structure
+
+```
+├── cmd/          # CLI commands (cobra)
+│   └── root.go
+├── internal/     # generator core logic
+├── templates/    # C++ project templates
+├── main.go       # entrypoint
+├── Makefile      # build/run/test/clean
+└── go.mod
+```
+
+## Generated Projects
+
+The Seed generates C++ projects designed with:
+
+- **Determinism and performance** as the default
+- **Modular and linkable** as a runtime SDK
+- Suitable for both **client** and **headless/server** execution
+- Fully multiplatform
+
+The generator keeps the generated project agnostic to gameplay, narrative, and world-specific logic.
