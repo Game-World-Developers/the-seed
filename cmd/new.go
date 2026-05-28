@@ -1,7 +1,7 @@
-package Cmd
+package cmd
 
 import (
-	"GameWorldDevelopers/The-Seed/Internal/Project"
+	"gameworlddevelopers/the-seed/internal/project"
 
 	"github.com/spf13/cobra"
 )
@@ -16,6 +16,6 @@ var newCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		return Project.Create(name)
+		return project.Create(name)
 	},
 }

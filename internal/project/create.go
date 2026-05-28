@@ -1,4 +1,4 @@
-package Project
+package project
 
 import (
 	"embed"
@@ -11,14 +11,14 @@ import (
 //go:embed templates/*.tmpl
 var templateFS embed.FS
 
-const seedYamlPath = "Config/project.seed.yml"
+const seedYamlPath = "config/project.seed.yml"
 
 type TemplateData struct {
 	Name       string
 	GameAKPath string
 }
 
-func findGameAK() string {
+func FindGameAK() string {
 	candidates := []string{
 		filepath.Join(os.Getenv("HOME"), "Projects", "GameAK"),
 		"/usr/local",
@@ -66,7 +66,7 @@ func Create(name string) error {
 		fmt.Printf("  Created %s/\n", filepath.Join(name, dir))
 	}
 
-	gameAKPath := findGameAK()
+	gameAKPath := FindGameAK()
 	if gameAKPath != "" {
 		fmt.Printf("  Found GameAK at %s\n", gameAKPath)
 	}
@@ -76,11 +76,11 @@ func Create(name string) error {
 		GameAKPath: gameAKPath,
 	}
 
-	if err := generateYaml(name, data); err != nil {
+	if err := GenerateYaml(name, data); err != nil {
 		return err
 	}
 
-	if err := generateFromTemplates(name, data); err != nil {
+	if err := GenerateFromTemplates(name, data); err != nil {
 		return err
 	}
 
@@ -88,7 +88,7 @@ func Create(name string) error {
 	return nil
 }
 
-func generateYaml(name string, data TemplateData) error {
+func GenerateYaml(name string, data TemplateData) error {
 	tmplBytes, err := os.ReadFile(seedYamlPath)
 	if err != nil {
 		return err
@@ -114,7 +114,7 @@ func generateYaml(name string, data TemplateData) error {
 	return nil
 }
 
-func generateFromTemplates(name string, data TemplateData) error {
+func GenerateFromTemplates(name string, data TemplateData) error {
 	entries := map[string]string{
 		"templates/Makefile.tmpl":       "Makefile",
 		"templates/gitignore.tmpl":      ".gitignore",

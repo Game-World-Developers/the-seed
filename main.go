@@ -1,7 +1,7 @@
 package main
 
-import "GameWorldDevelopers/The-Seed/Cmd"
+import "gameworlddevelopers/the-seed/cmd"
 
 func main() {
-	Cmd.Execute()
+	cmd.Execute()
 }

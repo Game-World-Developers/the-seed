@@ -1,8 +1,11 @@
-module GameWorldDevelopers/The-Seed
+module gameworlddevelopers/the-seed
 
 go 1.26.3
 
-require github.com/spf13/cobra v1.10.2
+require (
+	github.com/caiolandgraf/gest/v2 v2.1.4
+	github.com/spf13/cobra v1.10.2
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
