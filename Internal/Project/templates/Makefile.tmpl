@@ -1,0 +1,90 @@
+CXX := g++
+CXXFLAGS := -std=c++20 -fno-exceptions -fno-rtti -Wall -Wextra \
+            -IInclude
+BUILD_DIR := build
+SRC_DIR := Src
+TARGET := {{.Name}}
+
+# GameAK - auto-detected at generation time, or override via GAMEAK_DIR
+GAMEAK_DIR ?= {{if .GameAKPath}}{{.GameAKPath}}{{else}}Third-Party/GameAK{{end}}
+ifeq ($(wildcard $(GAMEAK_DIR)/Include/AK/Core/Types.hpp),)
+  GAMEAK_CFLAGS := $(shell pkg-config --cflags GameAK 2>/dev/null)
+  ifneq ($(GAMEAK_CFLAGS),)
+    CXXFLAGS += $(GAMEAK_CFLAGS)
+    GAMEAK_LIB_FOUND := $(shell pkg-config --libs GameAK 2>/dev/null)
+  else
+    GAMEAK_LIB_FOUND :=
+  endif
+else
+  CXXFLAGS += -I$(GAMEAK_DIR)/Include
+  GAMEAK_LIB := $(GAMEAK_DIR)/build/lib/libGameAK.a
+  GAMEAK_LIB_FOUND := $(if $(wildcard $(GAMEAK_LIB)),-L$(GAMEAK_DIR)/build/lib -lGameAK,)
+endif
+
+# spdlog - try pkg-config first, fall back to submodule path
+SPDLOG_CFLAGS := $(shell pkg-config --cflags spdlog 2>/dev/null || echo "-IThird-Party/spdlog/include")
+SPDLOG_LIBS   := $(shell pkg-config --libs   spdlog 2>/dev/null || echo "")
+
+EXTERNAL_LIBS_FLAGS := -DSPDLOG_NO_EXCEPTIONS \
+                       $(SPDLOG_CFLAGS) \
+                       -DCEST_ENABLE_FORK
+
+TEST_SRCS := $(wildcard Tests/*.cpp)
+TEST_TARGET := $(BUILD_DIR)/test_runner
+
+SRCS := $(shell find $(SRC_DIR) -name '*.cpp')
+OBJS := $(SRCS:%.cpp=$(BUILD_DIR)/%.o)
+
+# Cest header lookup
+CEST_DIR := $(if $(wildcard Third-Party/Cest/cest.h),Third-Party/Cest,$(if $(wildcard $(GAMEAK_DIR)/ThirdParty),$(GAMEAK_DIR)/ThirdParty,Third-Party/Cest))
+
+.PHONY: all clean run test setup check-deps
+
+all: check-deps $(BUILD_DIR)/$(TARGET) test
+
+check-deps:
+	@if [ -z "$(GAMEAK_LIB_FOUND)" ] && [ -z "$(wildcard $(GAMEAK_DIR)/Include/AK/Core/Types.hpp)" ] && [ -z "$(GAMEAK_CFLAGS)" ]; then \
+		echo "*** GameAK not found"; \
+		echo "*** Options:"; \
+		echo "***   1. Set GAMEAK_DIR to a local GameAK path"; \
+		echo "***   2. Run 'make setup' (requires git and network)"; \
+		echo "***   3. Install GameAK system-wide via 'make install'"; \
+		exit 1; \
+	fi
+	@if [ -z "$(GAMEAK_LIB_FOUND)" ] && [ -n "$(wildcard $(GAMEAK_DIR)/Include/AK/Core/Types.hpp)" ]; then \
+		echo "*** GameAK headers found at $(GAMEAK_DIR) but library not built."; \
+		echo "*** Run: make -C $(GAMEAK_DIR) lib"; \
+		exit 1; \
+	fi
+
+setup:
+	@if [ ! -d ".git" ]; then \
+		echo "*** Not a git repository. Initialize git first:"; \
+		echo "    git init"; \
+		echo "    git add ."; \
+		echo "    git commit -m \"Initial commit\""; \
+		echo "    make setup"; \
+		exit 1; \
+	fi
+	git submodule update --init --recursive
+	$(MAKE) -C Third-Party/GameAK lib
+
+$(BUILD_DIR)/$(TARGET): $(OBJS)
+	$(CXX) $(CXXFLAGS) $(EXTERNAL_LIBS_FLAGS) -o $@ $^ $(GAMEAK_LIB_FOUND) $(SPDLOG_LIBS)
+
+$(BUILD_DIR)/%.o: %.cpp | check-deps
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(EXTERNAL_LIBS_FLAGS) -c -o $@ $<
+
+run: $(BUILD_DIR)/$(TARGET)
+	./$(BUILD_DIR)/$(TARGET)
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+test: $(TEST_TARGET)
+	./$(TEST_TARGET)
+
+$(TEST_TARGET): $(TEST_SRCS)
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(EXTERNAL_LIBS_FLAGS) -I$(CEST_DIR) -o $@ $^ $(SPDLOG_LIBS)

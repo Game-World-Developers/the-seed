@@ -1,0 +1,10 @@
+#include <cest.h>
+
+int main() {
+    describe("{{.Name}}", {
+        it("should pass", {
+            expect(1 + 1).toEqual(2);
+        });
+    });
+    return cest_result();
+}

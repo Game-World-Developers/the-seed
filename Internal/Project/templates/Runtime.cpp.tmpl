@@ -1,0 +1,17 @@
+#include <{{.Name}}/Runtime/Runtime.hpp>
+#include <AK/Backend/Backend.hpp>
+
+namespace {{.Name}} {
+
+Runtime::Runtime() = default;
+Runtime::~Runtime() = default;
+
+auto Runtime::run() -> int {
+    while (m_running) {
+        m_system.update();
+        m_running = false;
+    }
+    return 0;
+}
+
+}

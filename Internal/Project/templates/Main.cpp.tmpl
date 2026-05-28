@@ -1,0 +1,10 @@
+#include <{{.Name}}/Runtime/Runtime.hpp>
+#include <AK/Backend/Backend.hpp>
+#include <spdlog/spdlog.h>
+
+auto main() -> int {
+    GameAK::Backend::init();
+    spdlog::info("Starting {{.Name}}");
+    {{.Name}}::Runtime runtime;
+    return runtime.run();
+}

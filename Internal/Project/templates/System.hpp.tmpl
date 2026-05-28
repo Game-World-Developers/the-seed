@@ -1,0 +1,21 @@
+#pragma once
+
+#include <AK/Core/Types.hpp>
+
+namespace {{.Name}} {
+
+class System {
+public:
+    System();
+    ~System();
+
+    System(const System&) = delete;
+    auto operator=(const System&) -> System& = delete;
+
+    System(System&&) noexcept = default;
+    auto operator=(System&&) noexcept -> System& = default;
+
+    auto update() -> void;
+};
+
+}

@@ -1,0 +1,14 @@
+project:
+  name: "{{ .Name }}"
+
+simulation:
+  deterministic: true
+  tick_rate: 60
+  rollback: true
+
+backend:
+  execution: bits
+  scheduler: graph
+
+network:
+  replication: delta

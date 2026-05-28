@@ -1,0 +1,22 @@
+#pragma once
+
+#include <cstdint>
+
+namespace {{.Name}} {
+
+class Component {
+public:
+    Component();
+    ~Component();
+
+    Component(const Component&) = delete;
+    auto operator=(const Component&) -> Component& = delete;
+
+    Component(Component&&) noexcept = default;
+    auto operator=(Component&&) noexcept -> Component& = default;
+
+private:
+    uint64_t m_id{};
+};
+
+}
