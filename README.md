@@ -27,16 +27,41 @@ Run tests:
 make tests
 ```
 
+## Usage
+
+```bash
+seed new [project name]
+```
+
+Creates a new project with:
+- ECS-to-DoD directory layout (Config, Include, Src, Tests, Third-Party)
+- C++ source files generated from embedded templates
+- Git repository initialization with an initial commit
+- Auto-detection of [GameAK](https://github.com/gameworlddevelopers/GameAK) when available
+
+```
+cd myproject && make
+```
+
 ## Repository Structure
 
 ```
-├── cmd/          # CLI commands (cobra)
-│   └── root.go
-├── internal/     # generator core logic
-├── templates/    # C++ project templates
-├── main.go       # entrypoint
-├── Makefile      # build/run/test/clean
-└── go.mod
+├── cmd/
+│   ├── root.go           # CLI root command (cobra)
+│   ├── root_test.go
+│   ├── new.go            # `seed new [project name]`
+│   └── new_test.go
+├── config/
+│   └── project.seed.yml  # YAML template for generated config
+├── internal/
+│   └── project/
+│       ├── create.go          # core generation logic
+│       ├── create_test.go
+│       └── templates/         # embedded C++ templates (*.tmpl)
+├── main.go               # entrypoint
+├── Makefile              # build / run / test / clean
+├── go.mod / go.sum
+└── README.md
 ```
 
 ## Generated Projects
