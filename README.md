@@ -34,10 +34,11 @@ seed new [project name]
 ```
 
 Creates a new project with:
+
 - ECS-to-DoD directory layout (Config, Include, Src, Tests, Third-Party)
 - C++ source files generated from embedded templates
 - Git repository initialization with an initial commit
-- Auto-detection of [GameAK](https://github.com/gameworlddevelopers/GameAK) when available
+- Auto-detection of [GameAK](https://github.com/Game-World-Developers/GameAK) when available
 
 ```
 cd myproject && make
