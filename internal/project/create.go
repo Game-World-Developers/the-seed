@@ -6,6 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"text/template"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 //go:embed templates/*.tmpl
@@ -33,6 +38,52 @@ func FindGameAK() string {
 	}
 
 	return ""
+}
+
+func initGitRepo(projectDir string) error {
+	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err == nil {
+		return nil
+	}
+
+	name := "The Seed"
+	email := "seed@gameworlddevelopers.org"
+
+	cfg, err := config.LoadConfig(config.GlobalScope)
+	if err == nil {
+		if cfg.User.Name != "" {
+			name = cfg.User.Name
+		}
+		if cfg.User.Email != "" {
+			email = cfg.User.Email
+		}
+	}
+
+	repo, err := git.PlainInit(projectDir, false)
+	if err != nil {
+		return fmt.Errorf("git init: %w", err)
+	}
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		return fmt.Errorf("worktree: %w", err)
+	}
+
+	if _, err := wt.Add("."); err != nil {
+		return fmt.Errorf("git add: %w", err)
+	}
+
+	if _, err := wt.Commit("Initial commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  name,
+			Email: email,
+			When:  time.Now(),
+		},
+	}); err != nil {
+		return fmt.Errorf("git commit: %w", err)
+	}
+
+	fmt.Printf("  Initialized git repository\n")
+	return nil
 }
 
 func Create(name string) error {
@@ -82,6 +133,10 @@ func Create(name string) error {
 
 	if err := GenerateFromTemplates(name, data); err != nil {
 		return err
+	}
+
+	if err := initGitRepo(name); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not init git repo: %v\n", err)
 	}
 
 	fmt.Printf("Done! Project %s generated successfully.\n", name)

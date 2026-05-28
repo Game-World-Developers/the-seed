@@ -58,14 +58,6 @@ check-deps:
 	fi
 
 setup:
-	@if [ ! -d ".git" ]; then \
-		echo "*** Not a git repository. Initialize git first:"; \
-		echo "    git init"; \
-		echo "    git add ."; \
-		echo "    git commit -m \"Initial commit\""; \
-		echo "    make setup"; \
-		exit 1; \
-	fi
 	git submodule update --init --recursive
 	$(MAKE) -C Third-Party/GameAK lib
 
