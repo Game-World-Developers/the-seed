@@ -1,12 +1,17 @@
-package cmd
+package tests
 
 import (
 	"testing"
 
 	"github.com/caiolandgraf/gest/v2/gest"
+
+	"gameworlddevelopers/the-seed/cmd"
 )
 
 func TestNewCommand(t *testing.T) {
+	newCmd := cmd.NewCmd()
+	rootCmd := cmd.RootCmd()
+
 	gest.Describe("new command").
 		It("has Use set to new [project name]", func(t *gest.T) {
 			t.Expect(newCmd.Use).ToEqual("new [project name]")

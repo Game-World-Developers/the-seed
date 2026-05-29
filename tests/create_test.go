@@ -1,4 +1,4 @@
-package project_test
+package tests
 
 import (
 	"os"
@@ -15,7 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func copySeedYml(dst string) {
-	src := filepath.Join("..", "..", "config", "project.seed.yml")
+	src := filepath.Join("..", "config", "project.seed.yml")
 	data, err := os.ReadFile(src)
 	if err != nil {
 		panic(err)
@@ -170,117 +170,6 @@ func TestGenerateYaml(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// GenerateFromTemplates
-// ---------------------------------------------------------------------------
-
-func TestGenerateFromTemplates(t *testing.T) {
-	tmp := t.TempDir()
-	copySeedYml(tmp)
-	chdir(t, tmp)
-
-	gest.Describe("GenerateFromTemplates").
-		It("creates all expected files", func(t *gest.T) {
-			name := "testproj"
-			createProjectLayout(tmp, name)
-
-			data := project.TemplateData{Name: name}
-			if err := project.GenerateFromTemplates(name, data); err != nil {
-				panic(err)
-			}
-
-			files := []string{
-				filepath.Join(tmp, name, "Makefile"),
-				filepath.Join(tmp, name, ".gitignore"),
-				filepath.Join(tmp, name, ".gitmodules"),
-				filepath.Join(tmp, name, "Src", "Main.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Worlds", "World.hpp"),
-				filepath.Join(tmp, name, "Src", "Worlds", "World.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Components", "Component.hpp"),
-				filepath.Join(tmp, name, "Src", "Components", "Component.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Systems", "System.hpp"),
-				filepath.Join(tmp, name, "Src", "Systems", "System.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Runtime", "Runtime.hpp"),
-				filepath.Join(tmp, name, "Src", "Runtime", "Runtime.cpp"),
-				filepath.Join(tmp, name, "Tests", "SampleTest.cpp"),
-			}
-			for _, path := range files {
-				info, err := os.Stat(path)
-				t.Expect(err).ToBeNil()
-				if err == nil {
-					t.Expect(info.IsDir()).ToBeFalse()
-				}
-			}
-		}).
-		It("generates files with correct content", func(t *gest.T) {
-			name := "testproj"
-			gameAKPath := "/custom/gameak/path"
-			createProjectLayout(tmp, name)
-
-			data := project.TemplateData{Name: name, GameAKPath: gameAKPath}
-			if err := project.GenerateFromTemplates(name, data); err != nil {
-				panic(err)
-			}
-
-			content := map[string][]byte{}
-			for _, f := range []string{
-				filepath.Join(tmp, name, "Src", "Main.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Worlds", "World.hpp"),
-				filepath.Join(tmp, name, "Tests", "SampleTest.cpp"),
-				filepath.Join(tmp, name, "Makefile"),
-				filepath.Join(tmp, name, ".gitignore"),
-				filepath.Join(tmp, name, ".gitmodules"),
-			} {
-				b, err := os.ReadFile(f)
-				if err != nil {
-					panic(err)
-				}
-				content[f] = b
-			}
-
-			main := string(content[filepath.Join(tmp, name, "Src", "Main.cpp")])
-			t.Expect(main).ToContain(name)
-			t.Expect(main).ToContain("GameAK::Backend::init()")
-
-			t.Expect(string(content[filepath.Join(tmp, name, "Include", name, "Worlds", "World.hpp")])).ToContain(name)
-			t.Expect(string(content[filepath.Join(tmp, name, "Tests", "SampleTest.cpp")])).ToContain(name)
-			t.Expect(string(content[filepath.Join(tmp, name, "Makefile")])).ToContain("GAMEAK_DIR ?= " + gameAKPath)
-			t.Expect(string(content[filepath.Join(tmp, name, ".gitignore")])).ToContain("build/")
-			t.Expect(string(content[filepath.Join(tmp, name, ".gitmodules")])).ToContain("GameAK")
-		}).
-		It("falls back to Third-Party/GameAK when path is empty", func(t *gest.T) {
-			name := "testproj"
-			createProjectLayout(tmp, name)
-
-			data := project.TemplateData{Name: name}
-			if err := project.GenerateFromTemplates(name, data); err != nil {
-				panic(err)
-			}
-
-			content, err := os.ReadFile(filepath.Join(tmp, name, "Makefile"))
-			if err != nil {
-				panic(err)
-			}
-			t.Expect(string(content)).ToContain("GAMEAK_DIR ?= Third-Party/GameAK")
-		}).
-		It("creates files with 0644 permissions", func(t *gest.T) {
-			name := "permtest"
-			createProjectLayout(tmp, name)
-
-			data := project.TemplateData{Name: name}
-			if err := project.GenerateFromTemplates(name, data); err != nil {
-				panic(err)
-			}
-
-			info, err := os.Stat(filepath.Join(tmp, name, "Makefile"))
-			if err != nil {
-				panic(err)
-			}
-			t.Expect(info.Mode() & 0o777).ToEqual(os.FileMode(0o644))
-		}).
-		Run(t)
-}
-
-// ---------------------------------------------------------------------------
 // Create (full integration)
 // ---------------------------------------------------------------------------
 
@@ -290,7 +179,7 @@ func TestCreate(t *testing.T) {
 	chdir(t, tmp)
 
 	gest.Describe("Create").
-		It("creates a full project with all directories and files", func(t *gest.T) {
+		It("creates a project with expected directories and project.yaml", func(t *gest.T) {
 			name := "fullproject"
 			if err := project.Create(name); err != nil {
 				panic(err)
@@ -320,19 +209,6 @@ func TestCreate(t *testing.T) {
 			}
 
 			files := []string{
-				filepath.Join(tmp, name, "Makefile"),
-				filepath.Join(tmp, name, ".gitignore"),
-				filepath.Join(tmp, name, ".gitmodules"),
-				filepath.Join(tmp, name, "Src", "Main.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Worlds", "World.hpp"),
-				filepath.Join(tmp, name, "Src", "Worlds", "World.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Components", "Component.hpp"),
-				filepath.Join(tmp, name, "Src", "Components", "Component.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Systems", "System.hpp"),
-				filepath.Join(tmp, name, "Src", "Systems", "System.cpp"),
-				filepath.Join(tmp, name, "Include", name, "Runtime", "Runtime.hpp"),
-				filepath.Join(tmp, name, "Src", "Runtime", "Runtime.cpp"),
-				filepath.Join(tmp, name, "Tests", "SampleTest.cpp"),
 				filepath.Join(tmp, name, "Config", "project.yaml"),
 			}
 			for _, path := range files {
@@ -342,12 +218,6 @@ func TestCreate(t *testing.T) {
 					t.Expect(info.IsDir()).ToBeFalse()
 				}
 			}
-
-			mainContent, err := os.ReadFile(filepath.Join(tmp, name, "Src", "Main.cpp"))
-			if err != nil {
-				panic(err)
-			}
-			t.Expect(string(mainContent)).ToContain(name)
 
 			yamlContent, err := os.ReadFile(filepath.Join(tmp, name, "Config", "project.yaml"))
 			if err != nil {

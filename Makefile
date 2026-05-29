@@ -13,7 +13,7 @@ build: tests
 	go build -o $(BUILD_DIR)/$(PROJECT_NAME) main.go
 
 tests:
-	gest ./...
+	gest ./tests/...
 
 install:
 	mv $(BUILD_DIR)/$(PROJECT_NAME) /usr/local/bin/$(PROJECT_NAME)

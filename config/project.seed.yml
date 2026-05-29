@@ -12,3 +12,6 @@ backend:
 
 network:
   replication: delta
+
+components:
+  default_capacity: 4096

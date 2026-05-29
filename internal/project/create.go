@@ -1,7 +1,6 @@
 package project
 
 import (
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,9 +11,6 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
-
-//go:embed templates/*.tmpl
-var templateFS embed.FS
 
 const seedYamlPath = "config/project.seed.yml"
 
@@ -122,16 +118,7 @@ func Create(name string) error {
 		fmt.Printf("  Found GameAK at %s\n", gameAKPath)
 	}
 
-	data := TemplateData{
-		Name:       name,
-		GameAKPath: gameAKPath,
-	}
-
-	if err := GenerateYaml(name, data); err != nil {
-		return err
-	}
-
-	if err := GenerateFromTemplates(name, data); err != nil {
+	if err := GenerateYaml(name, TemplateData{Name: name, GameAKPath: gameAKPath}); err != nil {
 		return err
 	}
 
@@ -169,48 +156,4 @@ func GenerateYaml(name string, data TemplateData) error {
 	return nil
 }
 
-func GenerateFromTemplates(name string, data TemplateData) error {
-	entries := map[string]string{
-		"templates/Makefile.tmpl":       "Makefile",
-		"templates/gitignore.tmpl":      ".gitignore",
-		"templates/gitmodules.tmpl":     ".gitmodules",
-		"templates/Main.cpp.tmpl":       filepath.Join("Src", "Main.cpp"),
-		"templates/World.hpp.tmpl":      filepath.Join("Include", name, "Worlds", "World.hpp"),
-		"templates/World.cpp.tmpl":      filepath.Join("Src", "Worlds", "World.cpp"),
-		"templates/Component.hpp.tmpl":  filepath.Join("Include", name, "Components", "Component.hpp"),
-		"templates/Component.cpp.tmpl":  filepath.Join("Src", "Components", "Component.cpp"),
-		"templates/System.hpp.tmpl":     filepath.Join("Include", name, "Systems", "System.hpp"),
-		"templates/System.cpp.tmpl":     filepath.Join("Src", "Systems", "System.cpp"),
-		"templates/Runtime.hpp.tmpl":    filepath.Join("Include", name, "Runtime", "Runtime.hpp"),
-		"templates/Runtime.cpp.tmpl":    filepath.Join("Src", "Runtime", "Runtime.cpp"),
-		"templates/SampleTest.cpp.tmpl": filepath.Join("Tests", "SampleTest.cpp"),
-	}
 
-	for tmplPath, outputRel := range entries {
-		tmplBytes, err := templateFS.ReadFile(tmplPath)
-		if err != nil {
-			return err
-		}
-
-		tmpl, err := template.New(filepath.Base(tmplPath)).Parse(string(tmplBytes))
-		if err != nil {
-			return err
-		}
-
-		outputPath := filepath.Join(name, outputRel)
-		file, err := os.Create(outputPath)
-		if err != nil {
-			return err
-		}
-
-		if err := tmpl.Execute(file, data); err != nil {
-			file.Close()
-			return err
-		}
-
-		file.Close()
-		fmt.Printf("  Generated %s\n", outputRel)
-	}
-
-	return nil
-}
