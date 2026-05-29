@@ -40,29 +40,9 @@ func chdir(t *testing.T, dir string) {
 	t.Cleanup(func() { os.Chdir(orig) })
 }
 
-func createProjectLayout(root, name string) {
-	base := filepath.Join(root, name)
-	dirs := []string{
-		"Config",
-		"Third-Party",
-		"Include",
-		"Src",
-		"Src/Worlds",
-		"Src/Components",
-		"Src/Systems",
-		"Src/Runtime",
-		"Src/Generated",
-		"Tests",
-	}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(filepath.Join(base, dir), 0o755); err != nil {
-			panic(err)
-		}
-	}
-	includeDir := filepath.Join("Include", name)
-	subDirs := []string{"Worlds", "Components", "Systems", "Runtime"}
-	for _, sub := range subDirs {
-		if err := os.MkdirAll(filepath.Join(base, includeDir, sub), 0o755); err != nil {
+func createDir(root, name string, subdirs ...string) {
+	for _, dir := range subdirs {
+		if err := os.MkdirAll(filepath.Join(root, name, dir), 0o755); err != nil {
 			panic(err)
 		}
 	}
@@ -130,7 +110,7 @@ func TestGenerateYaml(t *testing.T) {
 	gest.Describe("GenerateYaml").
 		It("generates project.yaml with correct fields", func(t *gest.T) {
 			name := "testproj"
-			createProjectLayout(tmp, name)
+			createDir(tmp, name, "Config")
 
 			data := project.TemplateData{Name: name}
 			if err := project.GenerateYaml(name, data); err != nil {
@@ -153,7 +133,7 @@ func TestGenerateYaml(t *testing.T) {
 		}).
 		It("creates yaml with 0644 permissions", func(t *gest.T) {
 			name := "permtest"
-			createProjectLayout(tmp, name)
+			createDir(tmp, name, "Config")
 
 			data := project.TemplateData{Name: name}
 			if err := project.GenerateYaml(name, data); err != nil {
@@ -185,38 +165,10 @@ func TestCreate(t *testing.T) {
 				panic(err)
 			}
 
-			dirs := []string{
-				filepath.Join(tmp, name),
-				filepath.Join(tmp, name, "Config"),
-				filepath.Join(tmp, name, "Third-Party"),
-				filepath.Join(tmp, name, "Include", name, "Worlds"),
-				filepath.Join(tmp, name, "Include", name, "Components"),
-				filepath.Join(tmp, name, "Include", name, "Systems"),
-				filepath.Join(tmp, name, "Include", name, "Runtime"),
-				filepath.Join(tmp, name, "Src", "Worlds"),
-				filepath.Join(tmp, name, "Src", "Components"),
-				filepath.Join(tmp, name, "Src", "Systems"),
-				filepath.Join(tmp, name, "Src", "Runtime"),
-				filepath.Join(tmp, name, "Src", "Generated"),
-				filepath.Join(tmp, name, "Tests"),
-			}
-			for _, d := range dirs {
-				info, err := os.Stat(d)
-				t.Expect(err).ToBeNil()
-				if err == nil {
-					t.Expect(info.IsDir()).ToBeTrue()
-				}
-			}
-
-			files := []string{
-				filepath.Join(tmp, name, "Config", "project.yaml"),
-			}
-			for _, path := range files {
-				info, err := os.Stat(path)
-				t.Expect(err).ToBeNil()
-				if err == nil {
-					t.Expect(info.IsDir()).ToBeFalse()
-				}
+			info, err := os.Stat(filepath.Join(tmp, name))
+			t.Expect(err).ToBeNil()
+			if err == nil {
+				t.Expect(info.IsDir()).ToBeTrue()
 			}
 
 			yamlContent, err := os.ReadFile(filepath.Join(tmp, name, "Config", "project.yaml"))

@@ -36,7 +36,7 @@ func FindGameAK() string {
 	return ""
 }
 
-func initGitRepo(projectDir string) error {
+func initGitRepo(projectDir string, projectName string) error {
 	if _, err := os.Stat(filepath.Join(projectDir, ".git")); err == nil {
 		return nil
 	}
@@ -68,7 +68,7 @@ func initGitRepo(projectDir string) error {
 		return fmt.Errorf("git add: %w", err)
 	}
 
-	if _, err := wt.Commit("Initial commit", &git.CommitOptions{
+	if _, err := wt.Commit(fmt.Sprintf("Starting a new game project called %s", projectName), &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  name,
 			Email: email,
@@ -93,16 +93,28 @@ func Create(name string) error {
 	dirs := []string{
 		"Config",
 		"Third-Party",
-		filepath.Join("Include", name, "Worlds"),
-		filepath.Join("Include", name, "Components"),
-		filepath.Join("Include", name, "Systems"),
-		filepath.Join("Include", name, "Runtime"),
-		filepath.Join("Src", "Worlds"),
+		filepath.Join("Assets", "Audio"),
+		filepath.Join("Assets", "Fonts"),
+		filepath.Join("Build", "Objects"),
+		filepath.Join("Build", "IR"),
+		filepath.Join("Build", "Generated"),
+		filepath.Join("Build", "Cache"),
+		filepath.Join("Models", "Traits"),
+		filepath.Join("Models", "Archetypes"),
+		filepath.Join("Models", "Entities"),
+		filepath.Join("Models", "Components"),
+		filepath.Join("Include", "Components"),
+		filepath.Join("Include", "Systems"),
+		filepath.Join("Include", "Runtime"),
+		filepath.Join("Include", "Seed"),
 		filepath.Join("Src", "Components"),
 		filepath.Join("Src", "Systems"),
 		filepath.Join("Src", "Runtime"),
-		filepath.Join("Src", "Generated"),
-		"Tests",
+		filepath.Join("Src", "Seed"),
+		filepath.Join("Tests", "Components"),
+		filepath.Join("Tests", "Systems"),
+		filepath.Join("Tests", "Runtime"),
+		filepath.Join("Tests", "Seed"),
 	}
 
 	for _, dir := range dirs {
@@ -122,7 +134,7 @@ func Create(name string) error {
 		return err
 	}
 
-	if err := initGitRepo(name); err != nil {
+	if err := initGitRepo(name, name); err != nil {
 		fmt.Fprintf(os.Stderr, "  Warning: could not init git repo: %v\n", err)
 	}
 
@@ -155,5 +167,3 @@ func GenerateYaml(name string, data TemplateData) error {
 	fmt.Printf("  Generated Config/project.yaml\n")
 	return nil
 }
-
-
