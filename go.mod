@@ -3,6 +3,7 @@ module Game-Developers-World/seed
 go 1.26.4
 
 require (
+	github.com/caiolandgraf/gest/v2 v2.1.4
 	github.com/spf13/cobra v1.10.2
 	gopkg.in/yaml.v3 v3.0.1
 )
