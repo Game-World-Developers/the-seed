@@ -1,0 +1,17 @@
+#pragma once
+
+#include "{{.Namespace}}/Entity/{{.Entity}}.hpp"
+
+#include <vector>
+
+namespace {{.Namespace}} {
+
+template<typename T = {{.Entity}}>
+struct {{.Name}} {
+    using entity_type = T;
+    std::vector<T> entities;
+
+    T& create() { return entities.emplace_back(); }
+};
+
+} // namespace {{.Namespace}}

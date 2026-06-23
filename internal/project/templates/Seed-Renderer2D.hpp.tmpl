@@ -1,0 +1,70 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+#include <Seed/Window.hpp>
+
+namespace seed {
+
+// ── RAII wrapper for SDL_Renderer (2D) ─────────────────────────────
+
+class Renderer2D {
+public:
+    static gameak::core::Result<Renderer2D> create(Window& window) {
+        auto* ren = SDL_CreateRenderer(window.get(), nullptr);
+        if (!ren) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Renderer2D(ren);
+    }
+
+    ~Renderer2D() {
+        if (renderer_) SDL_DestroyRenderer(renderer_);
+    }
+
+    Renderer2D(const Renderer2D&) = delete;
+    Renderer2D& operator=(const Renderer2D&) = delete;
+
+    Renderer2D(Renderer2D&& other) noexcept
+        : renderer_(other.renderer_)
+    {
+        other.renderer_ = nullptr;
+    }
+
+    Renderer2D& operator=(Renderer2D&& other) noexcept {
+        if (this != &other) {
+            if (renderer_) SDL_DestroyRenderer(renderer_);
+            renderer_ = other.renderer_;
+            other.renderer_ = nullptr;
+        }
+        return *this;
+    }
+
+    void clear(SDL_FColor color = {0.0f, 0.0f, 0.0f, 1.0f}) {
+        SDL_SetRenderDrawColorFloat(
+            renderer_,
+            color.r,
+            color.g,
+            color.b,
+            color.a
+        );
+        SDL_RenderClear(renderer_);
+    }
+
+    void present() {
+        SDL_RenderPresent(renderer_);
+    }
+
+private:
+    explicit Renderer2D(SDL_Renderer* ren)
+        : renderer_(ren)
+    {}
+
+    SDL_Renderer* renderer_{nullptr};
+};
+
+} // namespace seed

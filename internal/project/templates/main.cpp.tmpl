@@ -1,0 +1,63 @@
+#include <GameAk/Runtime/runtime.h>
+#include <SDL3/SDL.h>
+#include <Seed/Context.hpp>
+#include <Seed/Window.hpp>
+#include "Game/bootstrap.hpp"
+{{if eq .Mode "3d"}}
+#include <Seed/Renderer3D.hpp>
+using Renderer = seed::Renderer3D;
+{{else}}
+#include <Seed/Renderer2D.hpp>
+using Renderer = seed::Renderer2D;
+{{end}}
+
+int main() {
+    auto ctx_res = seed::Context::create(SDL_INIT_VIDEO);
+    if (!ctx_res) {
+        SDL_Log("Context::create failed: %s",
+            ctx_res.error().message().data());
+        return 1;
+    }
+
+    auto win_res = seed::Window::create("{{.Name}}", 800, 600, 0);
+    if (!win_res) {
+        SDL_Log("Window::create failed: %s",
+            win_res.error().message().data());
+        return 1;
+    }
+
+    auto ren_res = Renderer::create(win_res.value());
+    if (!ren_res) {
+        SDL_Log("Renderer::create failed: %s",
+            ren_res.error().message().data());
+        return 1;
+    }
+    auto& renderer = ren_res.value();
+
+    auto rt = gameak::runtime::Runtime<>::configure().build();
+
+    game::register_components(rt);
+    game::register_controllers(rt);
+
+    Uint64 last = SDL_GetPerformanceCounter();
+    bool running = true;
+    while (running) {
+        Uint64 now = SDL_GetPerformanceCounter();
+        float dt = (now - last) / (float)SDL_GetPerformanceFrequency();
+        last = now;
+
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT) {
+                running = false;
+            }
+        }
+
+        rt.tick(dt);
+
+        renderer.clear({0.1f, 0.1f, 0.1f, 1.0f});
+        renderer.present();
+    }
+
+    return 0;
+}

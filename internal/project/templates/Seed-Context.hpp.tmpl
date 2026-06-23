@@ -1,0 +1,34 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+namespace seed {
+
+// ── RAII wrapper for SDL_Init / SDL_Quit ──────────────────────────
+
+class Context {
+public:
+    static gameak::core::Result<Context> create(SDL_InitFlags flags) {
+        if (!SDL_Init(flags)) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Context();
+    }
+
+    ~Context() { SDL_Quit(); }
+
+    Context(const Context&) = delete;
+    Context& operator=(const Context&) = delete;
+
+    Context(Context&&) = default;
+    Context& operator=(Context&&) = default;
+
+private:
+    Context() = default;
+};
+
+} // namespace seed

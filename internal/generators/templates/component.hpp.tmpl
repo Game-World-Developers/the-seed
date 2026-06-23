@@ -1,0 +1,18 @@
+#pragma once
+
+#include <GameAk/Core/identity.h>
+#include <cstdint>
+
+namespace {{.Namespace}} {
+
+struct {{.Name}} {
+{{range .Fields}}    {{.Type}} {{.Name}};
+{{end}}};
+
+inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
+    rt.define<{{.Name}}>("{{.Name}}")
+{{range .Fields}}        .has(&{{$.Name}}::{{.Name}}, "{{.Name}}")
+{{end}}        .done();
+}
+
+} // namespace {{.Namespace}}

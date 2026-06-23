@@ -1,0 +1,12 @@
+#pragma once
+
+{{range .Components}}#include "{{$.Namespace}}/Component/{{.}}.hpp"
+{{end}}
+namespace {{.Namespace}} {
+
+struct {{.Name}} {
+    using components = std::tuple<{{range $i, $c := .Components}}{{if $i}}, {{end}}{{$c}}{{end}}>;
+{{range .Components}}    {{.}} {{.}};
+{{end}}};
+
+} // namespace {{.Namespace}}

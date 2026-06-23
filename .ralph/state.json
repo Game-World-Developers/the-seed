@@ -1,0 +1,28 @@
+{
+  "iteration": 0,
+  "phase": "setup",
+  "categories": [
+    {
+      "name": "CLI",
+      "score": 0,
+      "files": ["cmd/seed/main.go", "internal/commands/"]
+    },
+    {
+      "name": "Generators",
+      "score": 0,
+      "files": ["internal/generators/"]
+    },
+    {
+      "name": "Project",
+      "score": 0,
+      "files": ["internal/project/"]
+    },
+    {
+      "name": "Specs",
+      "score": 0,
+      "files": ["specs/"]
+    }
+  ],
+  "consecutiveCleanIterations": 0,
+  "lastUpdated": ""
+}
