@@ -1,13 +1,13 @@
 #include <GameAk/Runtime/runtime.h>
 #include <SDL3/SDL.h>
-#include <Seed/Context.hpp>
-#include <Seed/Window.hpp>
+#include <Seed/context.hpp>
+#include <Seed/window.hpp>
 #include "Game/bootstrap.hpp"
 {{if eq .Mode "3d"}}
-#include <Seed/Renderer3D.hpp>
+#include <Seed/renderer_3d.hpp>
 using Renderer = seed::Renderer3D;
 {{else}}
-#include <Seed/Renderer2D.hpp>
+#include <Seed/renderer_2d.hpp>
 using Renderer = seed::Renderer2D;
 {{end}}
 
@@ -34,7 +34,7 @@ int main() {
     }
     auto& renderer = ren_res.value();
 
-    auto rt = gameak::runtime::Runtime<>::configure().build();
+    auto rt = gameak::runtime::Runtime<>{};
 
     game::register_components(rt);
     game::register_controllers(rt);

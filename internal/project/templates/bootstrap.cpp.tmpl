@@ -3,16 +3,15 @@
 namespace game {
 
 void register_components(gameak::runtime::Runtime<>& rt) {
-    // Include generated component headers and call register_<Name>(rt) here:
-    //
-    //   #include <Core/Component/Position.hpp>
-    //   register_Position(rt);
+    // @seed:begin(components)
+    // Generated component registrations will be inserted here by `seed sync`
+    // @seed:end(components)
 }
 
 void register_controllers(gameak::runtime::Runtime<>& rt) {
-    // Register game controllers here:
-    //
-    //   rt.register_controller(my_controller);
+    // @seed:begin(controllers)
+    // Generated controller registrations will be inserted here by `seed sync`
+    // @seed:end(controllers)
 }
 
 } // namespace game

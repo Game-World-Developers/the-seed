@@ -69,6 +69,36 @@ func TestGeneratorsCreateModel(t *testing.T) {
 			gt.Expect(err).ToBeNil()
 			gt.Expect(string(data)).ToContain("name: PlayerArchetype")
 		}).
+		It("creates a state_machine YAML file", func(gt *gest.T) {
+			defer inDir(t, filepath.Join(tmpDir, "state_machine"))()
+
+			err := generators.CreateModel("state_machine", "PlayerController")
+			gt.Expect(err).ToBeNil()
+
+			path := filepath.Join(tmpDir, "state_machine", "Models", "StateMachine", "PlayerController.yaml")
+			_, err = os.Stat(path)
+			gt.Expect(err).ToBeNil()
+
+			data, err := os.ReadFile(path)
+			gt.Expect(err).ToBeNil()
+			gt.Expect(string(data)).ToContain("name: PlayerController")
+			gt.Expect(string(data)).ToContain("Idle")
+			gt.Expect(string(data)).ToContain("Running")
+		}).
+		It("creates a system YAML file", func(gt *gest.T) {
+			defer inDir(t, filepath.Join(tmpDir, "system"))()
+
+			err := generators.CreateModel("system", "Gravity")
+			gt.Expect(err).ToBeNil()
+
+			path := filepath.Join(tmpDir, "system", "Models", "System", "Gravity.yaml")
+			_, err = os.Stat(path)
+			gt.Expect(err).ToBeNil()
+
+			data, err := os.ReadFile(path)
+			gt.Expect(err).ToBeNil()
+			gt.Expect(string(data)).ToContain("name: Gravity")
+		}).
 		It("returns error for unknown type", func(gt *gest.T) {
 			defer inDir(t, filepath.Join(tmpDir, "unknown"))()
 

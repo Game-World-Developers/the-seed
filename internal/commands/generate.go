@@ -14,7 +14,14 @@ var generateCmd = &cobra.Command{
 	Long: `Create a new YAML model definition.
 If the file already exists, it prints a message and does nothing.
 
-Types: component, trait, entity, archetype
+Types: component, trait, entity, archetype, state_machine, system
+
+- component     — POD struct with data fields, registered as a Data Block
+- trait         — semantic grouping of components
+- entity        — composition of traits
+- archetype     — entity blueprint with factory
+- state_machine — FSM with states and event-driven transitions
+- system        — Controller callable with .hpp + .cpp skeleton
 
 Use "seed sync" to generate C++ headers from all model files.`,
 	Args: cobra.ExactArgs(2),

@@ -1,0 +1,116 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_gpu.h>
+
+#include <Seed/window.hpp>
+
+namespace seed {
+
+// ── RAII wrapper for SDL_GPUDevice ─────────────────────────────────
+
+class Renderer3D {
+public:
+    static gameak::core::Result<Renderer3D> create(Window& window) {
+        auto* device = SDL_CreateGPUDevice(
+            SDL_GPU_SHADERFORMAT_SPIRV
+                | SDL_GPU_SHADERFORMAT_DXIL
+                | SDL_GPU_SHADERFORMAT_METALLIB,
+            false,
+            nullptr
+        );
+        if (!device) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        if (!SDL_ClaimWindowForGPUDevice(device, window.get())) {
+            SDL_DestroyGPUDevice(device);
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Renderer3D(device, window.get());
+    }
+
+    ~Renderer3D() {
+        if (device_) {
+            SDL_ReleaseWindowFromGPUDevice(device_, window_);
+            SDL_DestroyGPUDevice(device_);
+        }
+    }
+
+    Renderer3D(const Renderer3D&) = delete;
+    Renderer3D& operator=(const Renderer3D&) = delete;
+
+    Renderer3D(Renderer3D&& other) noexcept
+        : device_(other.device_)
+        , window_(other.window_)
+        , clear_color_(other.clear_color_)
+    {
+        other.device_ = nullptr;
+        other.window_ = nullptr;
+    }
+
+    Renderer3D& operator=(Renderer3D&& other) noexcept {
+        if (this != &other) {
+            if (device_) {
+                SDL_ReleaseWindowFromGPUDevice(device_, window_);
+                SDL_DestroyGPUDevice(device_);
+            }
+            device_ = other.device_;
+            window_ = other.window_;
+            clear_color_ = other.clear_color_;
+            other.device_ = nullptr;
+            other.window_ = nullptr;
+        }
+        return *this;
+    }
+
+    void clear(SDL_FColor color = {0.1f, 0.1f, 0.1f, 1.0f}) {
+        clear_color_ = color;
+    }
+
+    void present() {
+        auto* cmd = SDL_AcquireGPUCommandBuffer(device_);
+        if (!cmd) return;
+
+        SDL_GPUTexture* swapchain = nullptr;
+        if (!SDL_WaitAndAcquireGPUSwapchainTexture(
+                cmd, window_, &swapchain, nullptr, nullptr
+            )) {
+            SDL_SubmitGPUCommandBuffer(cmd);
+            return;
+        }
+
+        if (swapchain) {
+            SDL_GPUColorTargetInfo target = {};
+            target.texture = swapchain;
+            target.clear_color = clear_color_;
+            target.load_op = SDL_GPU_LOADOP_CLEAR;
+            target.store_op = SDL_GPU_STOREOP_STORE;
+
+            auto* pass = SDL_BeginGPURenderPass(
+                cmd, &target, 1, nullptr
+            );
+            SDL_EndGPURenderPass(pass);
+        }
+
+        SDL_SubmitGPUCommandBuffer(cmd);
+    }
+
+private:
+    Renderer3D(SDL_GPUDevice* device, SDL_Window* window)
+        : device_(device)
+        , window_(window)
+    {}
+
+    SDL_GPUDevice* device_{nullptr};
+    SDL_Window* window_{nullptr};
+    SDL_FColor clear_color_{0.1f, 0.1f, 0.1f, 1.0f};
+};
+
+} // namespace seed

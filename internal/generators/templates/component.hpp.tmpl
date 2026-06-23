@@ -1,6 +1,7 @@
 #pragma once
 
 #include <GameAk/Core/identity.h>
+#include <GameAk/Runtime/runtime.h>
 #include <cstdint>
 
 namespace {{.Namespace}} {
@@ -10,9 +11,11 @@ struct {{.Name}} {
 {{end}}};
 
 inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
-    rt.define<{{.Name}}>("{{.Name}}")
-{{range .Fields}}        .has(&{{$.Name}}::{{.Name}}, "{{.Name}}")
-{{end}}        .done();
+    gameak::runtime::BlockTypeDescriptor desc{};
+    desc.name = "{{.Name}}";
+    desc.size = sizeof({{.Name}});
+    desc.alignment = alignof({{.Name}});
+    rt.register_block_type(desc);
 }
 
 } // namespace {{.Namespace}}

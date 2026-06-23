@@ -1,0 +1,21 @@
+#pragma once
+
+#include <GameAk/Runtime/runtime.h>
+
+namespace {{.Namespace}} {
+
+struct {{.Name}} {
+{{if .Entities}}    // Entities: {{range $i, $e := .Entities}}{{if $i}}, {{end}}{{$e}}{{end}}
+{{end}}{{if .Access}}    // Access: {{range $i, $a := .Access}}{{if $i}}, {{end}}{{$a}}{{end}}
+{{end}}    gameak::core::Result<void> operator()(
+        gameak::runtime::StateView& view,
+        gameak::runtime::CommandProducer& cmds,
+        gameak::runtime::EphemeralProducer& ephemeral
+    );
+};
+
+inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
+    rt.register_controller({{.Name}}{});
+}
+
+} // namespace {{.Namespace}}

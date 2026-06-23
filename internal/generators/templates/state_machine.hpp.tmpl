@@ -1,0 +1,19 @@
+#pragma once
+
+#include <GameAk/Runtime/runtime.h>
+#include <GameAk/Runtime/fsm.h>
+{{if .Entity}}#include "{{.Namespace}}/Entity/{{.Entity}}.hpp"
+{{end}}
+namespace {{.Namespace}} {
+
+inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
+    gameak::runtime::Fsm<> fsm;
+    fsm.initial_state("{{.Initial}}");
+{{range .States}}    fsm.add_state("{{.Name}}");
+{{end}}
+{{range $state := .States}}{{range .Transitions}}    fsm.add_transition("{{$state.Name}}", "{{.Event}}", "{{.Target}}");
+{{end}}{{end}}
+    rt.register_controller(fsm.build());
+}
+
+} // namespace {{.Namespace}}

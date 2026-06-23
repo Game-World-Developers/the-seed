@@ -1,0 +1,14 @@
+#include <{{.Namespace}}/{{.Name}}.hpp>
+
+namespace {{.Namespace}} {
+
+gameak::core::Result<void> {{.Name}}::operator()(
+    gameak::runtime::StateView& view,
+    gameak::runtime::CommandProducer& cmds,
+    gameak::runtime::EphemeralProducer& ephemeral
+) {
+    // TODO: implement system logic here
+    return {};
+}
+
+} // namespace {{.Namespace}}

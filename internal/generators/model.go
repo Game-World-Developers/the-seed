@@ -36,6 +36,31 @@ type ArchetypeModel struct {
 	Entity    string `yaml:"entity"`
 }
 
+type TransitionDef struct {
+	Target string `yaml:"target"`
+	Event  string `yaml:"event"`
+}
+
+type StateDef struct {
+	Name        string          `yaml:"name"`
+	Transitions []TransitionDef `yaml:"transitions"`
+}
+
+type StateMachineModel struct {
+	Name      string     `yaml:"name"`
+	Namespace string     `yaml:"namespace"`
+	Entity    string     `yaml:"entity"`
+	Initial   string     `yaml:"initial"`
+	States    []StateDef `yaml:"states"`
+}
+
+type SystemModel struct {
+	Name      string   `yaml:"name"`
+	Namespace string   `yaml:"namespace"`
+	Entities  []string `yaml:"entities"`
+	Access    []string `yaml:"access"`
+}
+
 func readModel(compType, path string) (any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,6 +88,18 @@ func readModel(compType, path string) (any, error) {
 		return m, nil
 	case "archetype":
 		var m ArchetypeModel
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case "state_machine":
+		var m StateMachineModel
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case "system":
+		var m SystemModel
 		if err := yaml.Unmarshal(data, &m); err != nil {
 			return nil, err
 		}
@@ -112,6 +149,44 @@ func defaultModel(compType, name string) ([]byte, error) {
 			Name:      name,
 			Namespace: "Core",
 			Entity:    name,
+		}
+		out, err := yaml.Marshal(&m)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "state_machine":
+		m := StateMachineModel{
+			Name:      name,
+			Namespace: "Game",
+			Entity:    "PlayerEntity",
+			Initial:   "Idle",
+			States: []StateDef{
+				{
+					Name: "Idle",
+					Transitions: []TransitionDef{
+						{Target: "Running", Event: "StartEvent"},
+					},
+				},
+				{
+					Name: "Running",
+					Transitions: []TransitionDef{
+						{Target: "Idle", Event: "StopEvent"},
+					},
+				},
+			},
+		}
+		out, err := yaml.Marshal(&m)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "system":
+		m := SystemModel{
+			Name:      name,
+			Namespace: "Game",
+			Entities:  []string{},
+			Access:    []string{},
 		}
 		out, err := yaml.Marshal(&m)
 		if err != nil {
