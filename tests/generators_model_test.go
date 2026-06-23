@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/caiolandgraf/gest/v2/gest"
 	"Game-Developers-World/seed/internal/generators"
+	"github.com/caiolandgraf/gest/v2/gest"
 )
 
 func TestGeneratorsCreateModel(t *testing.T) {

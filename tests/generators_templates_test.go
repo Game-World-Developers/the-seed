@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/caiolandgraf/gest/v2/gest"
 	"Game-Developers-World/seed/internal/generators/templates"
+	"github.com/caiolandgraf/gest/v2/gest"
 )
 
 func TestGeneratorsTemplatesLoad(t *testing.T) {
