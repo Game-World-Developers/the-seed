@@ -1,21 +1,30 @@
 #pragma once
 
 #include <GameAk/Runtime/runtime.h>
-
+{{range .Entities}}#include <{{.Namespace}}/{{.Name}}.hpp>
+{{end}}
 namespace {{.Namespace}} {
 
 struct {{.Name}} {
-{{if .Entities}}    // Entities: {{range $i, $e := .Entities}}{{if $i}}, {{end}}{{$e}}{{end}}
-{{end}}{{if .Access}}    // Access: {{range $i, $a := .Access}}{{if $i}}, {{end}}{{$a}}{{end}}
-{{end}}    gameak::core::Result<void> operator()(
+    gameak::core::Result<void> operator()(
         gameak::runtime::StateView& view,
         gameak::runtime::CommandProducer& cmds,
         gameak::runtime::EphemeralProducer& ephemeral
     );
 };
 
-inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
-    rt.register_controller({{.Name}}{});
-}
-
 } // namespace {{.Namespace}}
+
+inline gameak::core::Result<void> register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
+    {{if .Access -}}
+    gameak::core::flat_vector<uint32_t, 4> type_access;
+    for (const auto& [tid, desc] : rt.block_types()) {
+        {{- range .Access}}
+        if (desc.name == "{{.Name}}") { type_access.push_back(tid); continue; }
+        {{- end}}
+    }
+    return rt.register_controller({{.Namespace}}::{{.Name}}{}, {{.Priority}}, type_access);
+    {{- else -}}
+    return rt.register_controller({{.Namespace}}::{{.Name}}{}, {{.Priority}});
+    {{- end}}
+}

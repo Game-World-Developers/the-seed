@@ -1,26 +1,35 @@
 package project
 
-import "fmt"
+import (
+	"fmt"
 
-const (
-	colorReset  = "\033[0m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorCyan   = "\033[36m"
-	colorBold   = "\033[1m"
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	greenStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	yellowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	cyanStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
+	boldStyle   = lipgloss.NewStyle().Bold(true)
+	doneStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 )
 
 func logStatus(action, target string) {
-	actionColor := colorGreen
-	if action == "clone" {
-		actionColor = colorCyan
+	var style lipgloss.Style
+	switch action {
+	case "create", "generate":
+		style = greenStyle
+	case "identical", "overwrite":
+		style = yellowStyle
+	case "run":
+		style = cyanStyle
+	default:
+		style = greenStyle
 	}
-	fmt.Printf("  %s%-10s%s  %s%s%s\n",
-		actionColor, action, colorReset,
-		colorBold, target, colorReset)
+	fmt.Printf("  %11s  %s\n", style.Render(action), boldStyle.Render(target))
 }
 
 func logDone(format string, args ...any) {
-	fmt.Printf("  %s%-10s%s  ", colorGreen, "done", colorReset)
+	fmt.Printf("  %11s  ", doneStyle.Render("done"))
 	fmt.Printf(format+"\n", args...)
 }

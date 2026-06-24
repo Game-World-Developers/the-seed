@@ -1,10 +1,18 @@
 package commands
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
+
+func requireSeedProject() error {
+	if _, err := os.Stat(".seed_project"); os.IsNotExist(err) {
+		return fmt.Errorf("not a seed project (no .seed_project found). Run 'seed new --overwrite' first")
+	}
+	return nil
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "seed",

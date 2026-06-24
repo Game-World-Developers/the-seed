@@ -45,6 +45,7 @@ public:
     }
 
     void clear(SDL_FColor color = {0.0f, 0.0f, 0.0f, 1.0f}) {
+        if (!renderer_) return;
         SDL_SetRenderDrawColorFloat(
             renderer_,
             color.r,
@@ -56,6 +57,7 @@ public:
     }
 
     void present() {
+        if (!renderer_) return;
         SDL_RenderPresent(renderer_);
     }
 

@@ -23,8 +23,17 @@ var stateMachineTemplate string
 //go:embed system.hpp.tmpl
 var systemHppTemplate string
 
+//go:embed event.hpp.tmpl
+var eventTemplate string
+
+//go:embed asset.hpp.tmpl
+var assetTemplate string
+
 //go:embed system.cpp.tmpl
 var systemCppTemplate string
+
+//go:embed system_part.cpp.tmpl
+var systemPartCppTemplate string
 
 func Load(kind string) (string, error) {
 	switch kind {
@@ -40,6 +49,10 @@ func Load(kind string) (string, error) {
 		return stateMachineTemplate, nil
 	case "system":
 		return systemHppTemplate, nil
+	case "event":
+		return eventTemplate, nil
+	case "asset":
+		return assetTemplate, nil
 	default:
 		return "", fmt.Errorf("unknown template kind: %s", kind)
 	}
@@ -51,5 +64,14 @@ func LoadCpp(kind string) (string, error) {
 		return systemCppTemplate, nil
 	default:
 		return "", fmt.Errorf("no .cpp template for kind: %s", kind)
+	}
+}
+
+func LoadPartCpp(kind string) (string, error) {
+	switch kind {
+	case "system":
+		return systemPartCppTemplate, nil
+	default:
+		return "", fmt.Errorf("no part .cpp template for kind: %s", kind)
 	}
 }

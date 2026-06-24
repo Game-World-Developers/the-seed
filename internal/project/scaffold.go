@@ -9,6 +9,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 
+	"Game-Developers-World/seed/internal/generators"
 	projecttemplates "Game-Developers-World/seed/internal/project/templates"
 )
 
@@ -33,16 +34,17 @@ func Scaffold(name, mode string) error {
 	root := filepath.Join(".", name)
 
 	dirs := []string{
-		filepath.Join(root, "Src", "Game", "Systems"),
+		filepath.Join(root, "Src", "Game"),
 		filepath.Join(root, "Include", "Seed"),
-		filepath.Join(root, "Include", "Core", "Component"),
-		filepath.Join(root, "Include", "Core", "Trait"),
-		filepath.Join(root, "Include", "Core", "Entity"),
-		filepath.Join(root, "Include", "Core", "Archetype"),
+
 		filepath.Join(root, "Models", "Component"),
 		filepath.Join(root, "Models", "Trait"),
 		filepath.Join(root, "Models", "Entity"),
 		filepath.Join(root, "Models", "Archetype"),
+		filepath.Join(root, "Models", "StateMachine"),
+		filepath.Join(root, "Models", "Event"),
+		filepath.Join(root, "Models", "Asset"),
+		filepath.Join(root, "Models", "System"),
 	}
 
 	assetRoot := filepath.Join(root, "Assets")
@@ -69,7 +71,17 @@ func Scaffold(name, mode string) error {
 		return fmt.Errorf("failed to clone GameAK: %w", err)
 	}
 
-	return writeProjectFiles(name, mode, root, gameakDir, false)
+	if err := writeProjectFiles(name, mode, root, gameakDir, false); err != nil {
+		return err
+	}
+	if err := WriteStarterModels(root, false); err != nil {
+		return err
+	}
+	// Run sync inside the new project directory
+	oldDir, _ := os.Getwd()
+	os.Chdir(root)
+	defer os.Chdir(oldDir)
+	return generators.Sync()
 }
 
 type InitOpts struct {
@@ -87,16 +99,17 @@ func ScaffoldInit(opts InitOpts) error {
 	gameakDir := filepath.Join(root, "Third-Party", "GameAK")
 
 	dirs := []string{
-		filepath.Join(root, "Src", "Game", "Systems"),
+		filepath.Join(root, "Src", "Game"),
 		filepath.Join(root, "Include", "Seed"),
-		filepath.Join(root, "Include", "Core", "Component"),
-		filepath.Join(root, "Include", "Core", "Trait"),
-		filepath.Join(root, "Include", "Core", "Entity"),
-		filepath.Join(root, "Include", "Core", "Archetype"),
+
 		filepath.Join(root, "Models", "Component"),
 		filepath.Join(root, "Models", "Trait"),
 		filepath.Join(root, "Models", "Entity"),
 		filepath.Join(root, "Models", "Archetype"),
+		filepath.Join(root, "Models", "StateMachine"),
+		filepath.Join(root, "Models", "Event"),
+		filepath.Join(root, "Models", "Asset"),
+		filepath.Join(root, "Models", "System"),
 	}
 
 	assetRoot := filepath.Join(root, "Assets")
@@ -124,7 +137,13 @@ func ScaffoldInit(opts InitOpts) error {
 		}
 	}
 
-	return writeProjectFiles(name, opts.Mode, root, gameakDir, !opts.Overwrite)
+	if err := writeProjectFiles(name, opts.Mode, root, gameakDir, !opts.Overwrite); err != nil {
+		return err
+	}
+	if err := WriteStarterModels(root, !opts.Overwrite); err != nil {
+		return err
+	}
+	return generators.Sync()
 }
 
 func writeProjectFiles(name, mode, root, gameakDir string, skipExisting bool) error {
@@ -212,7 +231,30 @@ func writeProjectFiles(name, mode, root, gameakDir string, skipExisting bool) er
 		return err
 	}
 
+	if err := renderStatic("seed-audio.hpp", filepath.Join(root, "Include", "Seed", "audio.hpp")); err != nil {
+		return err
+	}
+
+	if err := renderStatic("seed-surface.hpp", filepath.Join(root, "Include", "Seed", "surface.hpp")); err != nil {
+		return err
+	}
+
+	if err := renderStatic("seed-font.hpp", filepath.Join(root, "Include", "Seed", "font.hpp")); err != nil {
+		return err
+	}
+
+	if err := renderStatic("seed-image.hpp", filepath.Join(root, "Include", "Seed", "image.hpp")); err != nil {
+		return err
+	}
+
+	if err := renderStatic("seed-asset-manager.hpp", filepath.Join(root, "Include", "Seed", "asset_manager.hpp")); err != nil {
+		return err
+	}
+
 	if mode == "2d" {
+		if err := renderStatic("seed-texture.hpp", filepath.Join(root, "Include", "Seed", "texture.hpp")); err != nil {
+			return err
+		}
 		if err := renderStatic("seed-renderer_2d.hpp", filepath.Join(root, "Include", "Seed", "renderer_2d.hpp")); err != nil {
 			return err
 		}
@@ -220,7 +262,15 @@ func writeProjectFiles(name, mode, root, gameakDir string, skipExisting bool) er
 		if err := renderStatic("seed-renderer_3d.hpp", filepath.Join(root, "Include", "Seed", "renderer_3d.hpp")); err != nil {
 			return err
 		}
+		if err := renderStatic("seed-shaders.hpp", filepath.Join(root, "Include", "Seed", "shaders.hpp")); err != nil {
+			return err
+		}
 	}
+
+	if err := os.WriteFile(filepath.Join(root, ".seed_project"), []byte{}, 0644); err != nil {
+		return fmt.Errorf("creating .seed_project: %w", err)
+	}
+	logStatus("create", filepath.Join(root, ".seed_project"))
 
 	logDone("Project %s scaffolded at %s/", name, root)
 	return nil

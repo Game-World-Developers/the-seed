@@ -3,6 +3,7 @@
 #include <GameAk/Core/identity.h>
 #include <GameAk/Runtime/runtime.h>
 #include <cstdint>
+#include <cstddef>
 
 namespace {{.Namespace}} {
 
@@ -10,12 +11,13 @@ struct {{.Name}} {
 {{range .Fields}}    {{.Type}} {{.Name}};
 {{end}}};
 
-inline void register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
-    gameak::runtime::BlockTypeDescriptor desc{};
-    desc.name = "{{.Name}}";
-    desc.size = sizeof({{.Name}});
-    desc.alignment = alignof({{.Name}});
-    rt.register_block_type(desc);
-}
-
+{{range .Fields}}constexpr size_t k{{$.Name}}Offset_{{.Name}} = offsetof({{$.Namespace}}::{{$.Name}}, {{.Name}});
+{{end}}
 } // namespace {{.Namespace}}
+
+inline gameak::core::Result<void> register_{{.Name}}(gameak::runtime::Runtime<>& rt) {
+    auto builder = rt.define("{{.Name}}");
+    builder.template size_of<{{.Namespace}}::{{.Name}}>();
+{{range .Fields}}    builder.has("{{.Name}}", &{{$.Namespace}}::{{$.Name}}::{{.Name}});
+{{end}}    return std::move(builder).done();
+}

@@ -1,0 +1,142 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
+#include <SDL3_ttf/SDL_ttf.h>
+
+#include <Seed/surface.hpp>
+
+#include <cstdio>
+#include <cstring>
+#include <new>
+
+namespace seed {
+
+struct AssetEntry {
+    enum Kind : int { kTexture, kFont, kAudio } kind;
+    union {
+        SDL_Texture* texture;
+        TTF_Font* font;
+    } data;
+};
+
+class AssetManager {
+public:
+    static constexpr int kMaxAssets = 64;
+
+    static gameak::core::Result<void> init() {
+        if (!IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG)) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        if (!TTF_Init()) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return {};
+    }
+
+    void quit() {
+        clear_all();
+        TTF_Quit();
+        IMG_Quit();
+    }
+
+    gameak::core::Result<SDL_Texture*> load_texture(
+        SDL_Renderer* renderer, const char* name, const char* path
+    ) {
+        if (count_ >= kMaxAssets) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                "AssetManager: max assets reached"
+            );
+        }
+        SDL_Texture* tex = IMG_LoadTexture(renderer, path);
+        if (!tex) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        entries_[count_].kind = AssetEntry::kTexture;
+        entries_[count_].data.texture = tex;
+        std::strncpy(names_[count_], name, kMaxNameLen);
+        names_[count_][kMaxNameLen] = '\0';
+        count_++;
+        return tex;
+    }
+
+    gameak::core::Result<TTF_Font*> load_font(
+        const char* name, const char* path, float pt_size
+    ) {
+        if (count_ >= kMaxAssets) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                "AssetManager: max assets reached"
+            );
+        }
+        TTF_Font* font = TTF_OpenFont(path, pt_size);
+        if (!font) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        entries_[count_].kind = AssetEntry::kFont;
+        entries_[count_].data.font = font;
+        std::strncpy(names_[count_], name, kMaxNameLen);
+        names_[count_][kMaxNameLen] = '\0';
+        count_++;
+        return font;
+    }
+
+    SDL_Texture* get_texture(const char* name) const {
+        for (int i = 0; i < count_; i++) {
+            if (entries_[i].kind == AssetEntry::kTexture &&
+                std::strcmp(names_[i], name) == 0) {
+                return entries_[i].data.texture;
+            }
+        }
+        return nullptr;
+    }
+
+    TTF_Font* get_font(const char* name) const {
+        for (int i = 0; i < count_; i++) {
+            if (entries_[i].kind == AssetEntry::kFont &&
+                std::strcmp(names_[i], name) == 0) {
+                return entries_[i].data.font;
+            }
+        }
+        return nullptr;
+    }
+
+    void clear_all() {
+        for (int i = 0; i < count_; i++) {
+            switch (entries_[i].kind) {
+            case AssetEntry::kTexture:
+                SDL_DestroyTexture(entries_[i].data.texture);
+                break;
+            case AssetEntry::kFont:
+                TTF_CloseFont(entries_[i].data.font);
+                break;
+            case AssetEntry::kAudio:
+                break;
+            }
+        }
+        count_ = 0;
+    }
+
+private:
+    static constexpr int kMaxNameLen = 63;
+
+    AssetEntry entries_[kMaxAssets]{};
+    char names_[kMaxAssets][kMaxNameLen + 1]{};
+    int count_ = 0;
+};
+
+} // namespace seed

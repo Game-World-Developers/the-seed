@@ -1,0 +1,22 @@
+#include <{{.Namespace}}/{{.Parent}}/{{.Name}}.hpp>
+
+namespace {{.Namespace}} {
+
+gameak::core::Result<void> {{.Name}}::operator()(
+    gameak::runtime::StateView& view,
+    gameak::runtime::CommandProducer& cmds,
+    gameak::runtime::EphemeralProducer& ephemeral
+) {
+    // ── Delta time via StateView ─────────────────────────────────────
+    // float dt = view.time_delta();
+
+    // ── Bulk field access via field_span ─────────────────────────────
+    // auto xs = view.field_span<float>(type_id, &Core::Position::x);
+    // for (size_t i = 0; i < xs.size(); i++) {
+    //     cmds.set(type_id, offsetof(Core::Position, x), xs[i] + 1.f);
+    // }
+
+    return {};
+}
+
+} // namespace {{.Namespace}}

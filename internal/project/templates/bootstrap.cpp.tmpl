@@ -1,17 +1,23 @@
 #include "bootstrap.hpp"
 
+// @seed:begin(components_include)
+// @seed:end(components_include)
+
+// @seed:begin(controllers_include)
+// @seed:end(controllers_include)
+
 namespace game {
 
-void register_components(gameak::runtime::Runtime<>& rt) {
-    // @seed:begin(components)
-    // Generated component registrations will be inserted here by `seed sync`
-    // @seed:end(components)
+gameak::core::Result<void> register_components(gameak::runtime::Runtime<>& rt) {
+    // @seed:begin(components_reg)
+    // @seed:end(components_reg)
+    return {};
 }
 
-void register_controllers(gameak::runtime::Runtime<>& rt) {
-    // @seed:begin(controllers)
-    // Generated controller registrations will be inserted here by `seed sync`
-    // @seed:end(controllers)
+gameak::core::Result<void> register_controllers(gameak::runtime::Runtime<>& rt) {
+    // @seed:begin(controllers_reg)
+    // @seed:end(controllers_reg)
+    return {};
 }
 
 } // namespace game

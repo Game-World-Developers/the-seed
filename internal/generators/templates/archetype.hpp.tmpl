@@ -1,12 +1,12 @@
 #pragma once
 
-#include "{{.Namespace}}/Entity/{{.Entity}}.hpp"
+#include <{{.Entity.Namespace}}/{{.Entity.Name}}.hpp>
 
 #include <vector>
 
 namespace {{.Namespace}} {
 
-template<typename T = {{.Entity}}>
+template<typename T = {{.Entity.Qualify}}>
 struct {{.Name}} {
     using entity_type = T;
     std::vector<T> entities;

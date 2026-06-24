@@ -4,7 +4,7 @@
 
 namespace game {
 
-void register_components(gameak::runtime::Runtime<>& rt);
-void register_controllers(gameak::runtime::Runtime<>& rt);
+gameak::core::Result<void> register_components(gameak::runtime::Runtime<>& rt);
+gameak::core::Result<void> register_controllers(gameak::runtime::Runtime<>& rt);
 
 } // namespace game

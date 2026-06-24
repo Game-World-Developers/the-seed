@@ -1,12 +1,14 @@
 #pragma once
 
-{{range .Traits}}#include "{{$.Namespace}}/Trait/{{.}}.hpp"
+#include <tuple>
+
+{{range .Traits}}#include <{{.Namespace}}/{{.Name}}.hpp>
 {{end}}
 namespace {{.Namespace}} {
 
 struct {{.Name}} {
-    using traits = std::tuple<{{range $i, $t := .Traits}}{{if $i}}, {{end}}{{$t}}{{end}}>;
-{{range .Traits}}    {{.}} {{.}};
+    using traits = std::tuple<{{range $i, $t := .Traits}}{{if $i}}, {{end}}{{$t.Qualify}}{{end}}>;
+{{range .Traits}}    {{.Qualify}} {{.Name}}_;
 {{end}}};
 
 } // namespace {{.Namespace}}

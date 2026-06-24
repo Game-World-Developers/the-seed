@@ -4,113 +4,369 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 
+#include <Seed/shaders.hpp>
 #include <Seed/window.hpp>
 
 namespace seed {
 
-// ── RAII wrapper for SDL_GPUDevice ─────────────────────────────────
+// ── Vertex layout matching SPIR-V shader ─────────────────────────────
+// location 0: vec2 position (float x, y)    offset  0
+// location 1: vec4 color    (float r,g,b,a)  offset  8
+
+struct QuadVertex {
+    float x, y;
+    float r, g, b, a;
+};
+
+inline constexpr Uint32 kMaxQuads = 1024;
+
+// ── Descriptor for a single drawable quad ────────────────────────────
+
+struct QuadDesc {
+    float x, y, w, h;
+    SDL_FColor color;
+};
+
+// ── RAII wrapper around SDL_GPUDevice ────────────────────────────────
 
 class Renderer3D {
 public:
-    static gameak::core::Result<Renderer3D> create(Window& window) {
-        auto* device = SDL_CreateGPUDevice(
-            SDL_GPU_SHADERFORMAT_SPIRV
-                | SDL_GPU_SHADERFORMAT_DXIL
-                | SDL_GPU_SHADERFORMAT_METALLIB,
-            false,
-            nullptr
-        );
-        if (!device) {
-            return gameak::core::Error(
-                gameak::core::ErrorCode::InternalError,
-                SDL_GetError()
-            );
-        }
+    static gameak::core::Result<Renderer3D> create(
+        Window& window,
+        SDL_GPUPresentMode present_mode = SDL_GPU_PRESENTMODE_VSYNC)
+    {
+        auto* device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV, false, nullptr);
+        if (!device)
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
+
         if (!SDL_ClaimWindowForGPUDevice(device, window.get())) {
             SDL_DestroyGPUDevice(device);
-            return gameak::core::Error(
-                gameak::core::ErrorCode::InternalError,
-                SDL_GetError()
-            );
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
         }
-        return Renderer3D(device, window.get());
+
+        SDL_SetGPUSwapchainParameters(device, window.get(),
+            SDL_GPU_SWAPCHAINCOMPOSITION_SDR_LINEAR,
+            present_mode);
+
+        Renderer3D ren(device, window.get());
+        ren.swapchain_format_ = SDL_GetGPUSwapchainTextureFormat(device, window.get());
+
+        // ── Shaders ──────────────────────────────────────────────────
+        auto createShader = [&](const Uint32* code, size_t codeSize, SDL_GPUShaderStage stage) {
+            SDL_GPUShaderCreateInfo info{};
+            info.code = reinterpret_cast<const Uint8*>(code);
+            info.code_size = codeSize;
+            info.entrypoint = "main";
+            info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+            info.stage = stage;
+            info.num_samplers = 0;
+            info.num_storage_buffers = 0;
+            info.num_storage_textures = 0;
+            return SDL_CreateGPUShader(device, &info);
+        };
+
+        auto* vs = createShader(kVertexShaderSPV, kVertexShaderSPV_size, SDL_GPU_SHADERSTAGE_VERTEX);
+        auto* fs = createShader(kFragmentShaderSPV, kFragmentShaderSPV_size, SDL_GPU_SHADERSTAGE_FRAGMENT);
+        if (!vs || !fs) {
+            if (vs) SDL_ReleaseGPUShader(device, vs);
+            if (fs) SDL_ReleaseGPUShader(device, fs);
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, "shader creation failed");
+        }
+
+        // ── Vertex input state ───────────────────────────────────────
+        SDL_GPUVertexBufferDescription vbDesc{};
+        vbDesc.slot = 0;
+        vbDesc.pitch = sizeof(QuadVertex);
+        vbDesc.input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX;
+
+        SDL_GPUVertexAttribute attribs[2] = {};
+        attribs[0].location = 0;
+        attribs[0].buffer_slot = 0;
+        attribs[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
+        attribs[0].offset = 0;
+        attribs[1].location = 1;
+        attribs[1].buffer_slot = 0;
+        attribs[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4;
+        attribs[1].offset = 8;
+
+        SDL_GPUVertexInputState vertexInput{};
+        vertexInput.num_vertex_buffers = 1;
+        vertexInput.vertex_buffer_descriptions = &vbDesc;
+        vertexInput.num_vertex_attributes = 2;
+        vertexInput.vertex_attributes = attribs;
+
+        // ── Rasterizer ───────────────────────────────────────────────
+        SDL_GPURasterizerState rasterizer{};
+        rasterizer.fill_mode = SDL_GPU_FILLMODE_FILL;
+        rasterizer.cull_mode = SDL_GPU_CULLMODE_NONE;
+        rasterizer.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+
+        // ── Color target ─────────────────────────────────────────────
+        SDL_GPUColorTargetBlendState blend{};
+        blend.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+        blend.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.color_blend_op = SDL_GPU_BLENDOP_ADD;
+        blend.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+        blend.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+        blend.enable_blend = true;
+        blend.enable_color_write_mask = false;
+
+        SDL_GPUColorTargetDescription colorTarget{};
+        colorTarget.format = ren.swapchain_format_;
+        colorTarget.blend_state = blend;
+
+        SDL_GPUGraphicsPipelineTargetInfo targetInfo{};
+        targetInfo.num_color_targets = 1;
+        targetInfo.color_target_descriptions = &colorTarget;
+
+        // ── Depth-stencil (disabled) ─────────────────────────────────
+        SDL_GPUDepthStencilState depthStencil{};
+
+        // ── Multisample (disabled) ────────────────────────────────────
+        SDL_GPUMultisampleState multisample{};
+        multisample.sample_count = SDL_GPU_SAMPLECOUNT_1;
+
+        // ── Pipeline ─────────────────────────────────────────────────
+        SDL_GPUGraphicsPipelineCreateInfo pipeInfo{};
+        pipeInfo.vertex_shader = vs;
+        pipeInfo.fragment_shader = fs;
+        pipeInfo.vertex_input_state = vertexInput;
+        pipeInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        pipeInfo.rasterizer_state = rasterizer;
+        pipeInfo.multisample_state = multisample;
+        pipeInfo.depth_stencil_state = depthStencil;
+        pipeInfo.target_info = targetInfo;
+
+        ren.pipeline_ = SDL_CreateGPUGraphicsPipeline(device, &pipeInfo);
+        SDL_ReleaseGPUShader(device, vs);
+        SDL_ReleaseGPUShader(device, fs);
+
+        if (!ren.pipeline_)
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, "pipeline creation failed");
+
+        // ── Vertex buffer ────────────────────────────────────────────
+        SDL_GPUBufferCreateInfo vbInfo{};
+        vbInfo.usage = SDL_GPU_BUFFERUSAGE_VERTEX;
+        vbInfo.size = kMaxQuads * 4 * sizeof(QuadVertex);
+        ren.vertex_buffer_ = SDL_CreateGPUBuffer(device, &vbInfo);
+        if (!ren.vertex_buffer_)
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, "vertex buffer creation failed");
+
+        // ── Index buffer ─────────────────────────────────────────────
+        SDL_GPUBufferCreateInfo ibInfo{};
+        ibInfo.usage = SDL_GPU_BUFFERUSAGE_INDEX;
+        ibInfo.size = kMaxQuads * 6 * sizeof(Uint16);
+        ren.index_buffer_ = SDL_CreateGPUBuffer(device, &ibInfo);
+        if (!ren.index_buffer_)
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, "index buffer creation failed");
+
+        // ── Fill index buffer ────────────────────────────────────────
+        auto* staging = new Uint16[kMaxQuads * 6];
+        for (Uint32 i = 0; i < kMaxQuads; i++) {
+            staging[i * 6 + 0] = i * 4 + 0;
+            staging[i * 6 + 1] = i * 4 + 1;
+            staging[i * 6 + 2] = i * 4 + 2;
+            staging[i * 6 + 3] = i * 4 + 0;
+            staging[i * 6 + 4] = i * 4 + 2;
+            staging[i * 6 + 5] = i * 4 + 3;
+        }
+
+        // ── Upload index buffer data ──────────────────────────────────
+        SDL_GPUTransferBufferCreateInfo tbInfo{};
+        tbInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        tbInfo.size = kMaxQuads * 6 * sizeof(Uint16);
+        auto* stagingBuf = SDL_CreateGPUTransferBuffer(device, &tbInfo);
+        auto* mapped = SDL_MapGPUTransferBuffer(device, stagingBuf, false);
+        memcpy(mapped, staging, kMaxQuads * 6 * sizeof(Uint16));
+        SDL_UnmapGPUTransferBuffer(device, stagingBuf);
+        delete[] staging;
+
+        auto* uploadCmd = SDL_AcquireGPUCommandBuffer(device);
+        auto* copyPass = SDL_BeginGPUCopyPass(uploadCmd);
+        SDL_GPUTransferBufferLocation srcLoc{};
+        srcLoc.transfer_buffer = stagingBuf;
+        SDL_GPUBufferRegion dstReg{};
+        dstReg.buffer = ren.index_buffer_;
+        dstReg.size = kMaxQuads * 6 * sizeof(Uint16);
+        SDL_UploadToGPUBuffer(copyPass, &srcLoc, &dstReg, false);
+        SDL_EndGPUCopyPass(copyPass);
+        SDL_SubmitGPUCommandBuffer(uploadCmd);
+        SDL_ReleaseGPUTransferBuffer(device, stagingBuf);
+
+        // ── Per-frame transfer buffer for vertex data ────────────────
+        tbInfo.size = kMaxQuads * 4 * sizeof(QuadVertex);
+        ren.transfer_buffer_ = SDL_CreateGPUTransferBuffer(device, &tbInfo);
+        if (!ren.transfer_buffer_)
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, "transfer buffer creation failed");
+
+        return ren;
     }
 
     ~Renderer3D() {
-        if (device_) {
-            SDL_ReleaseWindowFromGPUDevice(device_, window_);
-            SDL_DestroyGPUDevice(device_);
-        }
+        release_resources();
     }
 
     Renderer3D(const Renderer3D&) = delete;
     Renderer3D& operator=(const Renderer3D&) = delete;
 
     Renderer3D(Renderer3D&& other) noexcept
-        : device_(other.device_)
-        , window_(other.window_)
-        , clear_color_(other.clear_color_)
-    {
+        : device_(other.device_),
+          window_(other.window_),
+          pipeline_(other.pipeline_),
+          vertex_buffer_(other.vertex_buffer_),
+          index_buffer_(other.index_buffer_),
+          transfer_buffer_(other.transfer_buffer_),
+          swapchain_format_(other.swapchain_format_),
+          clear_color_(other.clear_color_) {
         other.device_ = nullptr;
         other.window_ = nullptr;
+        other.pipeline_ = nullptr;
+        other.vertex_buffer_ = nullptr;
+        other.index_buffer_ = nullptr;
+        other.transfer_buffer_ = nullptr;
     }
 
     Renderer3D& operator=(Renderer3D&& other) noexcept {
         if (this != &other) {
-            if (device_) {
-                SDL_ReleaseWindowFromGPUDevice(device_, window_);
-                SDL_DestroyGPUDevice(device_);
-            }
+            release_resources();
             device_ = other.device_;
             window_ = other.window_;
+            pipeline_ = other.pipeline_;
+            vertex_buffer_ = other.vertex_buffer_;
+            index_buffer_ = other.index_buffer_;
+            transfer_buffer_ = other.transfer_buffer_;
+            swapchain_format_ = other.swapchain_format_;
             clear_color_ = other.clear_color_;
             other.device_ = nullptr;
             other.window_ = nullptr;
+            other.pipeline_ = nullptr;
+            other.vertex_buffer_ = nullptr;
+            other.index_buffer_ = nullptr;
+            other.transfer_buffer_ = nullptr;
         }
         return *this;
     }
 
-    void clear(SDL_FColor color = {0.1f, 0.1f, 0.1f, 1.0f}) {
-        clear_color_ = color;
+    void begin_frame(SDL_FColor clear_color = {0.1f, 0.1f, 0.1f, 1.0f}) {
+        if (!device_) return;
+        clear_color_ = clear_color;
+        quad_count_ = 0;
     }
 
-    void present() {
+    void draw_quad(const QuadDesc& qd) {
+        if (!device_) return;
+        if (quad_count_ >= kMaxQuads) return;
+
+        float l = qd.x;
+        float r = qd.x + qd.w;
+        float b = qd.y + qd.h;
+        float t = qd.y;
+
+        auto* v = &vertices_[quad_count_ * 4];
+        v[0] = {l, b, qd.color.r, qd.color.g, qd.color.b, qd.color.a};
+        v[1] = {r, b, qd.color.r, qd.color.g, qd.color.b, qd.color.a};
+        v[2] = {r, t, qd.color.r, qd.color.g, qd.color.b, qd.color.a};
+        v[3] = {l, t, qd.color.r, qd.color.g, qd.color.b, qd.color.a};
+
+        quad_count_++;
+    }
+
+    void end_frame() {
+        if (!device_) return;
+
         auto* cmd = SDL_AcquireGPUCommandBuffer(device_);
         if (!cmd) return;
 
+        // Upload vertex data for this frame
+        if (quad_count_ > 0) {
+            auto* mapped = static_cast<QuadVertex*>(
+                SDL_MapGPUTransferBuffer(device_, transfer_buffer_, false));
+            if (mapped) {
+                Uint32 uploadSize = quad_count_ * 4 * sizeof(QuadVertex);
+                memcpy(mapped, vertices_, uploadSize);
+                SDL_UnmapGPUTransferBuffer(device_, transfer_buffer_);
+
+                auto* copyPass = SDL_BeginGPUCopyPass(cmd);
+                SDL_GPUTransferBufferLocation srcLoc{};
+                srcLoc.transfer_buffer = transfer_buffer_;
+                SDL_GPUBufferRegion dstReg{};
+                dstReg.buffer = vertex_buffer_;
+                dstReg.size = uploadSize;
+                SDL_UploadToGPUBuffer(copyPass, &srcLoc, &dstReg, false);
+                SDL_EndGPUCopyPass(copyPass);
+            }
+        }
+
         SDL_GPUTexture* swapchain = nullptr;
-        if (!SDL_WaitAndAcquireGPUSwapchainTexture(
-                cmd, window_, &swapchain, nullptr, nullptr
-            )) {
+        if (!SDL_WaitAndAcquireGPUSwapchainTexture(cmd, window_, &swapchain, nullptr, nullptr)) {
+            SDL_SubmitGPUCommandBuffer(cmd);
+            return;
+        }
+        if (!swapchain) {
             SDL_SubmitGPUCommandBuffer(cmd);
             return;
         }
 
-        if (swapchain) {
-            SDL_GPUColorTargetInfo target = {};
-            target.texture = swapchain;
-            target.clear_color = clear_color_;
-            target.load_op = SDL_GPU_LOADOP_CLEAR;
-            target.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_GPUColorTargetInfo target{};
+        target.texture = swapchain;
+        target.clear_color = clear_color_;
+        target.load_op = SDL_GPU_LOADOP_CLEAR;
+        target.store_op = SDL_GPU_STOREOP_STORE;
 
-            auto* pass = SDL_BeginGPURenderPass(
-                cmd, &target, 1, nullptr
-            );
-            SDL_EndGPURenderPass(pass);
+        auto* pass = SDL_BeginGPURenderPass(cmd, &target, 1, nullptr);
+        SDL_BindGPUGraphicsPipeline(pass, pipeline_);
+
+        if (quad_count_ > 0) {
+            SDL_GPUBufferBinding vbBind{};
+            vbBind.buffer = vertex_buffer_;
+            vbBind.offset = 0;
+            SDL_BindGPUVertexBuffers(pass, 0, &vbBind, 1);
+
+            SDL_GPUBufferBinding ibBind{};
+            ibBind.buffer = index_buffer_;
+            ibBind.offset = 0;
+            SDL_BindGPUIndexBuffer(pass, &ibBind, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+
+            SDL_DrawGPUIndexedPrimitives(pass, quad_count_ * 6, 1, 0, 0, 0);
         }
 
+        SDL_EndGPURenderPass(pass);
         SDL_SubmitGPUCommandBuffer(cmd);
     }
 
 private:
     Renderer3D(SDL_GPUDevice* device, SDL_Window* window)
-        : device_(device)
-        , window_(window)
-    {}
+        : device_(device), window_(window) {}
+
+    void release_resources() {
+        if (!device_) return;
+        if (pipeline_) SDL_ReleaseGPUGraphicsPipeline(device_, pipeline_);
+        if (vertex_buffer_) SDL_ReleaseGPUBuffer(device_, vertex_buffer_);
+        if (index_buffer_) SDL_ReleaseGPUBuffer(device_, index_buffer_);
+        if (transfer_buffer_) SDL_ReleaseGPUTransferBuffer(device_, transfer_buffer_);
+        SDL_ReleaseWindowFromGPUDevice(device_, window_);
+        SDL_DestroyGPUDevice(device_);
+        device_ = nullptr;
+        pipeline_ = nullptr;
+        vertex_buffer_ = nullptr;
+        index_buffer_ = nullptr;
+        transfer_buffer_ = nullptr;
+        window_ = nullptr;
+    }
 
     SDL_GPUDevice* device_{nullptr};
     SDL_Window* window_{nullptr};
+    SDL_GPUGraphicsPipeline* pipeline_{nullptr};
+    SDL_GPUBuffer* vertex_buffer_{nullptr};
+    SDL_GPUBuffer* index_buffer_{nullptr};
+    SDL_GPUTransferBuffer* transfer_buffer_{nullptr};
+    SDL_GPUTextureFormat swapchain_format_{};
     SDL_FColor clear_color_{0.1f, 0.1f, 0.1f, 1.0f};
+    Uint32 quad_count_{0};
+    QuadVertex vertices_[kMaxQuads * 4]{};
 };
+
+inline Renderer3D* gRenderer = nullptr;
 
 } // namespace seed

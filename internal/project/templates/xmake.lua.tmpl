@@ -2,6 +2,8 @@ add_rules("mode.debug", "mode.release")
 set_languages("c++20")
 
 add_requires("libsdl3")
+add_requires("libsdl3_image")
+add_requires("libsdl3_ttf")
 
 includes("Third-Party/GameAK")
 
@@ -10,7 +12,7 @@ target("{{.Name}}")
     add_includedirs("Include")
     add_files("Src/*.cpp")
     add_files("Src/Game/*.cpp")
-    add_files("Src/Game/**/*.cpp", {force = true})
-    add_packages("libsdl3")
+    add_files("Src/Game/**/*.cpp")
+    add_packages("libsdl3", "libsdl3_image", "libsdl3_ttf")
     add_deps("gameak-runtime", "gameak-core")
     add_cxxflags("-Wno-interference-size")

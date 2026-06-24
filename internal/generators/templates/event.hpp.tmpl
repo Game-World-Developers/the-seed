@@ -1,0 +1,14 @@
+#pragma once
+
+#include <cstdint>
+#include <cstddef>
+
+namespace {{.Namespace}} {
+
+struct {{.Name}} {
+{{range .Fields}}    {{.Type}} {{.Name}};
+{{end}}};
+
+inline constexpr uint32_t k{{.Name}}Id = {{.Name | eventId}};
+
+} // namespace {{.Namespace}}

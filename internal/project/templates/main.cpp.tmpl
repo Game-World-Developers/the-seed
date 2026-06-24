@@ -1,63 +1,257 @@
 #include <GameAk/Runtime/runtime.h>
 #include <SDL3/SDL.h>
+#include <Seed/audio.hpp>
 #include <Seed/context.hpp>
 #include <Seed/window.hpp>
 #include "Game/bootstrap.hpp"
+#include <cstdio>
 {{if eq .Mode "3d"}}
 #include <Seed/renderer_3d.hpp>
+#include <Core/Position.hpp>
+#include <cmath>
+#include <vector>
 using Renderer = seed::Renderer3D;
 {{else}}
 #include <Seed/renderer_2d.hpp>
 using Renderer = seed::Renderer2D;
 {{end}}
 
+static constexpr float kMinDt = 1.0f / 240.0f;
+static constexpr float kMaxFrameDt = 0.1f;
+
+{{if eq .Mode "3d"}}
+struct Orbiter {
+    gameak::core::Identity id;
+    float ox, oy;
+    float phase;
+    SDL_FColor color;
+};
+
+static constexpr SDL_FColor kPalette[] = {
+    {1,0,0,1},{0,1,0,1},{0,0,1,1},{1,1,0,1},{0,1,1,1},
+    {1,0,1,1},{0.5f,0,0,1},{0,0.5f,0,1},{0,0,0.5f,1},{0.5f,0.5f,0,1},
+};
+{{end}}
+
+static float detect_refresh_rate() {
+    SDL_DisplayID display = SDL_GetPrimaryDisplay();
+    if (!display) return 60.0f;
+    const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+    if (!mode || mode->refresh_rate <= 0) return 60.0f;
+    return mode->refresh_rate;
+}
+
 int main() {
-    auto ctx_res = seed::Context::create(SDL_INIT_VIDEO);
+    SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
+    SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
+
+    auto ctx_res = seed::Context::create(
+        SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD |
+        SDL_INIT_HAPTIC | SDL_INIT_SENSOR);
     if (!ctx_res) {
-        SDL_Log("Context::create failed: %s",
-            ctx_res.error().message().data());
+        SDL_Log("Context::create failed: %s", ctx_res.error().message().data());
         return 1;
     }
 
-    auto win_res = seed::Window::create("{{.Name}}", 800, 600, 0);
+    SDL_WindowFlags win_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    auto win_res = seed::Window::create("{{.Name}}", 1280, 720, win_flags);
     if (!win_res) {
-        SDL_Log("Window::create failed: %s",
-            win_res.error().message().data());
+        SDL_Log("Window::create failed: %s", win_res.error().message().data());
         return 1;
     }
+
+    auto audio_res = seed::Audio::create();
+    if (!audio_res) {
+        SDL_Log("Warning: Audio unavailable (continuing without audio): %s",
+                audio_res.error().message().data());
+    }
+
+    SDL_Gamepad* gamepads[8]{};
+    int gamepad_count = 0;
 
     auto ren_res = Renderer::create(win_res.value());
     if (!ren_res) {
-        SDL_Log("Renderer::create failed: %s",
-            ren_res.error().message().data());
+        SDL_Log("Renderer::create failed: %s", ren_res.error().message().data());
         return 1;
     }
     auto& renderer = ren_res.value();
+    {{if eq .Mode "3d"}}seed::gRenderer = &renderer;{{end}}
 
-    auto rt = gameak::runtime::Runtime<>{};
+    float refresh_rate = detect_refresh_rate();
+    float fixed_dt = 1.0f / refresh_rate;
+    if (fixed_dt < kMinDt) fixed_dt = kMinDt;
 
-    game::register_components(rt);
-    game::register_controllers(rt);
+    auto rt = gameak::runtime::Runtime<>::configure().build();
+    rt.set_fixed_timestep(fixed_dt);
 
-    Uint64 last = SDL_GetPerformanceCounter();
-    bool running = true;
+    {
+        auto res = game::register_components(rt);
+        if (!res) {
+            SDL_Log("register_components failed: %s", res.error().message().data());
+            return 1;
+        }
+    }
+    {
+        auto res = game::register_controllers(rt);
+        if (!res) {
+            SDL_Log("register_controllers failed: %s", res.error().message().data());
+            return 1;
+        }
+    }
+
+{{if eq .Mode "3d"}}
+    // ── Look up type IDs for Position ──────────────────────────────────
+    uint32_t pos_type = 0;
+    for (const auto& [tid, desc] : rt.block_types()) {
+        if (desc.name == "Position") { pos_type = tid; break; }
+    }
+
+    // ── Create demo entities ───────────────────────────────────────────
+    std::vector<Orbiter> orbiters;
+    for (int i = 0; i < 10; i++) {
+        float ox = 100.f + (i % 5) * 150.f;
+        float oy = 80.f + (i / 5) * 160.f;
+        auto id_res = rt.create_block(pos_type);
+        if (!id_res) continue;
+        auto id = id_res.value();
+        rt.submit_command(gameak::runtime::Command::set_field<float>(
+            id, offsetof(Core::Position, x), ox));
+        rt.submit_command(gameak::runtime::Command::set_field<float>(
+            id, offsetof(Core::Position, y), oy));
+        orbiters.push_back({id, ox, oy, float(i) * 0.8f, kPalette[i]});
+    }
+    rt.tick(0);
+
+    float speed      = 0.5f;
+    float radius     = 60.f;
+    float elapsed    = 0;
+    Uint64 last      = SDL_GetPerformanceCounter();
+    int frame_count  = 0;
+    float fps_accum  = 0;
+    char title[128];
+    bool running     = true;
+
     while (running) {
         Uint64 now = SDL_GetPerformanceCounter();
         float dt = (now - last) / (float)SDL_GetPerformanceFrequency();
         last = now;
+        if (dt > kMaxFrameDt) dt = kMaxFrameDt;
 
+        // ── Event processing ─────────────────────────────────────────
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
+            switch (event.type) {
+            case SDL_EVENT_QUIT:
                 running = false;
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                switch (event.key.key) {
+                case SDLK_ESCAPE: running = false; break;
+                case SDLK_LEFT:
+                case SDLK_A: speed -= 0.1f; if (speed < 0.1f) speed = 0.1f; break;
+                case SDLK_RIGHT:
+                case SDLK_D: speed += 0.1f; if (speed > 3.f) speed = 3.f; break;
+                case SDLK_UP:
+                case SDLK_W: radius += 10.f; if (radius > 200.f) radius = 200.f; break;
+                case SDLK_DOWN:
+                case SDLK_S: radius -= 10.f; if (radius < 10.f) radius = 10.f; break;
+                default: break;
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (gamepad_count < 8) {
+                    gamepads[gamepad_count++] = SDL_OpenGamepad(event.gdevice.which);
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                for (int i = 0; i < gamepad_count; i++) {
+                    if (SDL_GetGamepadID(gamepads[i]) == event.gdevice.which) {
+                        SDL_CloseGamepad(gamepads[i]);
+                        gamepads[i] = gamepads[--gamepad_count];
+                        gamepads[gamepad_count] = nullptr;
+                        break;
+                    }
+                }
+                break;
+            default:
+                break;
             }
+        }
+
+        // ── Game logic: controllers execute here ─────────────────────
+        elapsed += dt;
+
+        // Direct entity manipulation (for template demo; real games
+        // should use controllers for all logic):
+        for (auto& o : orbiters) {
+            float a = elapsed * speed + o.phase;
+            float px = o.ox + std::cos(a) * radius;
+            float py = o.oy + std::sin(a * 0.7f) * radius;
+            rt.submit_command(gameak::runtime::Command::set_field<float>(
+                o.id, offsetof(Core::Position, x), px));
+            rt.submit_command(gameak::runtime::Command::set_field<float>(
+                o.id, offsetof(Core::Position, y), py));
         }
 
         rt.tick(dt);
 
+        // ── Render: read blocks from Runtime (not from StateView) ────
+        renderer.begin_frame({0.1f, 0.1f, 0.1f, 1.0f});
+        for (auto& o : orbiters) {
+            auto* block = rt.get_block(o.id);
+            if (!block) continue;
+            float sx = 400.f + block->field<float>(offsetof(Core::Position, x)) - 20.f;
+            float sy = 300.f + block->field<float>(offsetof(Core::Position, y)) - 20.f;
+            renderer.draw_quad({sx, sy, 40.f, 40.f, o.color});
+        }
+        renderer.end_frame();
+
+        frame_count++;
+        fps_accum += dt;
+        if (fps_accum >= 0.5f) {
+            float fps = frame_count / fps_accum;
+            std::snprintf(title, sizeof(title),
+                "{{.Name}} [%.0f FPS | speed %.1f radius %.0f]", fps, speed, radius);
+            SDL_SetWindowTitle(win_res.value().get(), title);
+            frame_count = 0;
+            fps_accum = 0;
+        }
+    }
+{{else}}
+    bool running = true;
+
+    while (running) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            switch (event.type) {
+            case SDL_EVENT_QUIT:
+                running = false;
+                break;
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (gamepad_count < 8) {
+                    gamepads[gamepad_count++] = SDL_OpenGamepad(event.gdevice.which);
+                }
+                break;
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                for (int i = 0; i < gamepad_count; i++) {
+                    if (SDL_GetGamepadID(gamepads[i]) == event.gdevice.which) {
+                        SDL_CloseGamepad(gamepads[i]);
+                        gamepads[i] = gamepads[--gamepad_count];
+                        gamepads[gamepad_count] = nullptr;
+                        break;
+                    }
+                }
+                break;
+            default:
+                break;
+            }
+        }
+
+        rt.tick(fixed_dt);
         renderer.clear({0.1f, 0.1f, 0.1f, 1.0f});
         renderer.present();
     }
+{{end}}
 
     return 0;
 }

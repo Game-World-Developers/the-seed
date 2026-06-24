@@ -1,0 +1,27 @@
+#pragma once
+
+#include <Seed/asset_manager.hpp>
+
+namespace {{.Namespace}} {
+
+inline constexpr const char* k{{.Name}}Path = "{{.Path}}";
+
+inline gameak::core::Result<void> register_{{.Name}}(
+    seed::AssetManager& am
+    {{if eq .Kind "texture"}}, SDL_Renderer* renderer{{end}}
+) {
+    {{if eq .Kind "texture"}}
+    auto res = am.load_texture(renderer, "{{.Name}}", k{{.Name}}Path);
+    if (!res) return res.error();
+    return {};
+    {{else if eq .Kind "font"}}
+    auto res = am.load_font("{{.Name}}", k{{.Name}}Path, 16.0f);
+    if (!res) return res.error();
+    return {};
+    {{else}}
+    (void)am;
+    return {};
+    {{end}}
+}
+
+} // namespace {{.Namespace}}

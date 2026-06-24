@@ -6,113 +6,175 @@ import (
 	"testing"
 
 	"Game-Developers-World/seed/internal/generators"
-	"github.com/caiolandgraf/gest/v2/gest"
 )
 
 func TestGeneratorsCreateModel(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	gest.Describe("generators.CreateModel").
-		It("creates a component YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "component"))()
+	t.Run("creates a component YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "component"))()
 
-			err := generators.CreateModel("component", "Health")
-			gt.Expect(err).ToBeNil()
+		err := generators.CreateModel("component", "Health")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			path := filepath.Join(tmpDir, "component", "Models", "Component", "Health.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+		path := filepath.Join(tmpDir, "component", "Models", "Component", "Health.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: Health")
-		}).
-		It("creates a trait YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "trait"))()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: Health") {
+			t.Fatalf("expected YAML to contain 'name: Health', got: %s", data)
+		}
+	})
 
-			err := generators.CreateModel("trait", "Movable")
-			gt.Expect(err).ToBeNil()
+	t.Run("creates a trait YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "trait"))()
 
-			path := filepath.Join(tmpDir, "trait", "Models", "Trait", "Movable.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+		err := generators.CreateModel("trait", "Movable")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: Movable")
-		}).
-		It("creates an entity YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "entity"))()
+		path := filepath.Join(tmpDir, "trait", "Models", "Trait", "Movable.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			err := generators.CreateModel("entity", "Player")
-			gt.Expect(err).ToBeNil()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: Movable") {
+			t.Fatalf("expected YAML to contain 'name: Movable', got: %s", data)
+		}
+	})
 
-			path := filepath.Join(tmpDir, "entity", "Models", "Entity", "Player.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+	t.Run("creates an entity YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "entity"))()
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: Player")
-		}).
-		It("creates an archetype YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "archetype"))()
+		err := generators.CreateModel("entity", "Player")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			err := generators.CreateModel("archetype", "PlayerArchetype")
-			gt.Expect(err).ToBeNil()
+		path := filepath.Join(tmpDir, "entity", "Models", "Entity", "Player.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			path := filepath.Join(tmpDir, "archetype", "Models", "Archetype", "PlayerArchetype.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: Player") {
+			t.Fatalf("expected YAML to contain 'name: Player', got: %s", data)
+		}
+	})
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: PlayerArchetype")
-		}).
-		It("creates a state_machine YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "state_machine"))()
+	t.Run("creates an archetype YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "archetype"))()
 
-			err := generators.CreateModel("state_machine", "PlayerController")
-			gt.Expect(err).ToBeNil()
+		err := generators.CreateModel("archetype", "PlayerArchetype")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			path := filepath.Join(tmpDir, "state_machine", "Models", "StateMachine", "PlayerController.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+		path := filepath.Join(tmpDir, "archetype", "Models", "Archetype", "PlayerArchetype.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: PlayerController")
-			gt.Expect(string(data)).ToContain("Idle")
-			gt.Expect(string(data)).ToContain("Running")
-		}).
-		It("creates a system YAML file", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "system"))()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: PlayerArchetype") {
+			t.Fatalf("expected YAML to contain 'name: PlayerArchetype', got: %s", data)
+		}
+	})
 
-			err := generators.CreateModel("system", "Gravity")
-			gt.Expect(err).ToBeNil()
+	t.Run("creates a state_machine YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "state_machine"))()
 
-			path := filepath.Join(tmpDir, "system", "Models", "System", "Gravity.yaml")
-			_, err = os.Stat(path)
-			gt.Expect(err).ToBeNil()
+		err := generators.CreateModel("state_machine", "PlayerController")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			data, err := os.ReadFile(path)
-			gt.Expect(err).ToBeNil()
-			gt.Expect(string(data)).ToContain("name: Gravity")
-		}).
-		It("returns error for unknown type", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "unknown"))()
+		path := filepath.Join(tmpDir, "state_machine", "Models", "StateMachine", "PlayerController.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 
-			err := generators.CreateModel("invalid", "Test")
-			gt.Expect(err).Not().ToBeNil()
-		}).
-		It("does not error when file already exists", func(gt *gest.T) {
-			defer inDir(t, filepath.Join(tmpDir, "exists"))()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: PlayerController") {
+			t.Fatalf("expected YAML to contain 'name: PlayerController', got: %s", data)
+		}
+		if !contains(string(data), "Idle") {
+			t.Fatalf("expected YAML to contain 'Idle', got: %s", data)
+		}
+		if !contains(string(data), "Running") {
+			t.Fatalf("expected YAML to contain 'Running', got: %s", data)
+		}
+	})
 
-			err := generators.CreateModel("component", "Health")
-			gt.Expect(err).ToBeNil()
+	t.Run("creates a system YAML file", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "system"))()
 
-			err = generators.CreateModel("component", "Health")
-			gt.Expect(err).ToBeNil()
-		}).
-		Run(t)
+		err := generators.CreateModel("system", "Gravity")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path := filepath.Join(tmpDir, "system", "Models", "System", "Gravity.yaml")
+		_, err = os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(data), "name: Gravity") {
+			t.Fatalf("expected YAML to contain 'name: Gravity', got: %s", data)
+		}
+	})
+
+	t.Run("returns error for unknown type", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "unknown"))()
+
+		err := generators.CreateModel("invalid", "Test")
+		if err == nil {
+			t.Fatal("expected error for unknown type")
+		}
+	})
+
+	t.Run("does not error when file already exists", func(t *testing.T) {
+		defer inDir(t, filepath.Join(tmpDir, "exists"))()
+
+		err := generators.CreateModel("component", "Health")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = generators.CreateModel("component", "Health")
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }

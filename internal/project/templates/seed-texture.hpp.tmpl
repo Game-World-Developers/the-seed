@@ -1,0 +1,55 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+#include <Seed/surface.hpp>
+
+namespace seed {
+
+class Texture {
+public:
+    static gameak::core::Result<Texture> from_surface(
+        SDL_Renderer* renderer, const Surface& surface
+    ) {
+        SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface.get());
+        if (!tex) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Texture(tex);
+    }
+
+    ~Texture() { if (texture_) SDL_DestroyTexture(texture_); }
+
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
+
+    Texture(Texture&& other) noexcept
+        : texture_(other.texture_)
+    {
+        other.texture_ = nullptr;
+    }
+
+    Texture& operator=(Texture&& other) noexcept {
+        if (this != &other) {
+            if (texture_) SDL_DestroyTexture(texture_);
+            texture_ = other.texture_;
+            other.texture_ = nullptr;
+        }
+        return *this;
+    }
+
+    [[nodiscard]] SDL_Texture* get() const { return texture_; }
+
+private:
+    explicit Texture(SDL_Texture* texture)
+        : texture_(texture)
+    {}
+
+    SDL_Texture* texture_{nullptr};
+};
+
+} // namespace seed

@@ -7,7 +7,32 @@ gameak::core::Result<void> {{.Name}}::operator()(
     gameak::runtime::CommandProducer& cmds,
     gameak::runtime::EphemeralProducer& ephemeral
 ) {
-    // TODO: implement system logic here
+    // ── Delta time via StateView ─────────────────────────────────────
+    // float dt = view.time_delta();
+
+    // ── Bulk field access via field_span (SoA-friendly) ──────────────
+    // To use field_span you need the type_id. One approach:
+    // uint32_t type_id = 0;
+    // for (const auto& [tid, desc] : rt.block_types()) {
+    //     if (desc.name == "Position") { type_id = tid; break; }
+    // }
+
+    // auto xs = view.field_span<float>(type_id, &Core::Position::x);
+    // auto ys = view.field_span<float>(type_id, &Core::Position::y);
+    // for (size_t i = 0; i < xs.size(); i++) {
+    //     float new_y = ys[i] - 9.8f * dt;
+    //     cmds.set(type_id, offsetof(Core::Position, y), new_y);
+    // }
+
+    // ── Individual block access ──────────────────────────────────────
+    // const auto* block = view.get_block(some_identity);
+    // if (block) {
+    //     float x = block->field<float>(offsetof(Core::Position, x));
+    // }
+
+    // ── Ephemeral data (per-tick, auto-destroyed) ────────────────────
+    // auto ephem_id = ephemeral.create(some_type_id);
+
     return {};
 }
 

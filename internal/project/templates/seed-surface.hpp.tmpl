@@ -1,0 +1,78 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+#include <cstdint>
+
+namespace seed {
+
+class Surface {
+public:
+    static gameak::core::Result<Surface> load_bmp(const char* path) {
+        SDL_Surface* surface = SDL_LoadBMP(path);
+        if (!surface) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Surface(surface);
+    }
+
+    static gameak::core::Result<Surface> create(
+        int width, int height, SDL_PixelFormat format
+    ) {
+        SDL_Surface* surface = SDL_CreateSurface(width, height, format);
+        if (!surface) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Surface(surface);
+    }
+
+    ~Surface() { if (surface_) SDL_DestroySurface(surface_); }
+
+    Surface(const Surface&) = delete;
+    Surface& operator=(const Surface&) = delete;
+
+    Surface(Surface&& other) noexcept
+        : surface_(other.surface_)
+    {
+        other.surface_ = nullptr;
+    }
+
+    Surface& operator=(Surface&& other) noexcept {
+        if (this != &other) {
+            if (surface_) SDL_DestroySurface(surface_);
+            surface_ = other.surface_;
+            other.surface_ = nullptr;
+        }
+        return *this;
+    }
+
+    bool save_bmp(const char* path) const {
+        return SDL_SaveBMP(surface_, path);
+    }
+
+    static Surface from_raw(SDL_Surface* surface) {
+        return Surface(surface);
+    }
+
+    [[nodiscard]] int width() const { return surface_->w; }
+    [[nodiscard]] int height() const { return surface_->h; }
+    [[nodiscard]] SDL_PixelFormat format() const { return surface_->format; }
+
+    [[nodiscard]] SDL_Surface* get() const { return surface_; }
+
+private:
+    explicit Surface(SDL_Surface* surface)
+        : surface_(surface)
+    {}
+
+    SDL_Surface* surface_{nullptr};
+};
+
+} // namespace seed

@@ -1,0 +1,25 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
+
+#include <Seed/surface.hpp>
+
+namespace seed {
+
+class Image {
+public:
+    static gameak::core::Result<Surface> load(const char* path) {
+        SDL_Surface* surface = IMG_Load(path);
+        if (!surface) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Surface::from_raw(surface);
+    }
+};
+
+} // namespace seed

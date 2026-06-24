@@ -1,0 +1,69 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
+
+#include <Seed/surface.hpp>
+
+namespace seed {
+
+class Font {
+public:
+    static gameak::core::Result<Font> load(const char* path, float pt_size) {
+        TTF_Font* font = TTF_OpenFont(path, pt_size);
+        if (!font) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Font(font);
+    }
+
+    ~Font() { if (font_) TTF_CloseFont(font_); }
+
+    Font(const Font&) = delete;
+    Font& operator=(const Font&) = delete;
+
+    Font(Font&& other) noexcept
+        : font_(other.font_)
+    {
+        other.font_ = nullptr;
+    }
+
+    Font& operator=(Font&& other) noexcept {
+        if (this != &other) {
+            if (font_) TTF_CloseFont(font_);
+            font_ = other.font_;
+            other.font_ = nullptr;
+        }
+        return *this;
+    }
+
+    gameak::core::Result<Surface> render_text(
+        const char* text, SDL_Color color
+    ) {
+        SDL_Surface* surface = TTF_RenderText_Blended(font_, text, 0, color);
+        if (!surface) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        return Surface::from_raw(surface);
+    }
+
+    [[nodiscard]] int height() const { return TTF_GetFontHeight(font_); }
+
+    [[nodiscard]] TTF_Font* get() const { return font_; }
+
+private:
+    explicit Font(TTF_Font* font)
+        : font_(font)
+    {}
+
+    TTF_Font* font_{nullptr};
+};
+
+} // namespace seed

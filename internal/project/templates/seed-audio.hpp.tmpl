@@ -1,0 +1,70 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+#include <cstdint>
+
+namespace seed {
+
+class Audio {
+public:
+    static gameak::core::Result<Audio> create() {
+        SDL_AudioSpec spec;
+        SDL_zero(spec);
+        spec.freq = 48000;
+        spec.format = SDL_AUDIO_F32;
+        spec.channels = 2;
+
+        SDL_AudioStream* stream = SDL_OpenAudioDeviceStream(
+            SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr
+        );
+        if (!stream) {
+            return gameak::core::Error(
+                gameak::core::ErrorCode::InternalError,
+                SDL_GetError()
+            );
+        }
+        SDL_ResumeAudioStreamDevice(stream);
+        return Audio(stream);
+    }
+
+    ~Audio() {
+        if (stream_) SDL_CloseAudioDevice(SDL_GetAudioStreamDevice(stream_));
+    }
+
+    Audio(const Audio&) = delete;
+    Audio& operator=(const Audio&) = delete;
+
+    Audio(Audio&& other) noexcept
+        : stream_(other.stream_)
+    {
+        other.stream_ = nullptr;
+    }
+
+    Audio& operator=(Audio&& other) noexcept {
+        if (this != &other) {
+            if (stream_) SDL_CloseAudioDevice(SDL_GetAudioStreamDevice(stream_));
+            stream_ = other.stream_;
+            other.stream_ = nullptr;
+        }
+        return *this;
+    }
+
+    bool enqueue(const float* samples, int count) {
+        return SDL_PutAudioStreamData(stream_, samples, count * sizeof(float));
+    }
+
+    void flush() { SDL_FlushAudioStream(stream_); }
+
+    [[nodiscard]] SDL_AudioStream* get() const { return stream_; }
+
+private:
+    explicit Audio(SDL_AudioStream* stream)
+        : stream_(stream)
+    {}
+
+    SDL_AudioStream* stream_{nullptr};
+};
+
+} // namespace seed
