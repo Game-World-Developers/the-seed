@@ -1,0 +1,40 @@
+#pragma once
+
+#include <cstdint>
+
+namespace {{.Namespace}} {
+
+// Pre-baked block colors computed from terrain atlas tiles.
+// Each value is a packed 0xRRGGBB color with light multiplier applied.
+// Profile: {{.Profile}}
+
+enum BlockType : uint8_t {
+    AIR = 0,
+    {{range .Blocks}}
+    {{.EnumName}},
+    {{end}}
+    NUM_BLOCK_TYPES
+};
+
+struct BlockInfo {
+    const char* name;
+    bool is_solid;
+    bool is_transparent;
+    bool is_fluid;
+    uint32_t color_top;
+    uint32_t color_bottom;
+    uint32_t color_side;
+    float hardness;
+    BlockType drop;
+};
+
+inline constexpr BlockInfo kBlockInfo[NUM_BLOCK_TYPES] = {
+    {"Air", false, true, false, 0x000000, 0x000000, 0x000000, 0.0f, AIR},
+    {{range .Blocks}}
+    {"{{.Name}}", {{.Solid}}, {{.Transparent}}, {{.Fluid}},
+     0x{{printf "%06X" .ColorTop}}, 0x{{printf "%06X" .ColorBottom}}, 0x{{printf "%06X" .ColorSide}},
+     {{.Hardness}}, {{.EnumName}}},
+    {{end}}
+};
+
+} // namespace {{.Namespace}}

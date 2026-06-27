@@ -172,6 +172,26 @@ type AssetModel struct {
 	Path      string `yaml:"path"`
 }
 
+type BlockFaceColors struct {
+	Top    uint32 `yaml:"top"`
+	Bottom uint32 `yaml:"bottom"`
+	Side   uint32 `yaml:"side"`
+}
+
+type BlockModel struct {
+	Type         string           `yaml:"type"`
+	Name         string           `yaml:"name"`
+	Namespace    string           `yaml:"namespace"`
+	TileIndex    uint8            `yaml:"tile_index"`
+	Colors       BlockFaceColors  `yaml:"colors,omitempty"`
+	Solid        bool             `yaml:"solid"`
+	Transparent  bool             `yaml:"transparent"`
+	Fluid        bool             `yaml:"fluid,omitempty"`
+	Hardness     float64          `yaml:"hardness"`
+	Drop         string           `yaml:"drop"`
+	AtlasPath    string           `yaml:"atlas_path,omitempty"`
+}
+
 type SystemModel struct {
 	Type      string       `yaml:"type"`
 	Name      string       `yaml:"name"`
@@ -330,6 +350,13 @@ func (m *AssetModel) HasParts() bool                             { return false 
 func (m *AssetModel) ExtractParts() ([]string, []map[string]any) { return nil, nil }
 func (m *AssetModel) Resolve(reg *ModelRegistry) error           { return nil }
 
+func (m *BlockModel) ModelName() string                          { return m.Name }
+func (m *BlockModel) ModelNamespace() string                     { return m.Namespace }
+func (m *BlockModel) ModelType() string                          { return m.Type }
+func (m *BlockModel) HasParts() bool                             { return false }
+func (m *BlockModel) ExtractParts() ([]string, []map[string]any) { return nil, nil }
+func (m *BlockModel) Resolve(reg *ModelRegistry) error           { return nil }
+
 func (m *SystemModel) ModelName() string      { return m.Name }
 func (m *SystemModel) ModelNamespace() string { return m.Namespace }
 func (m *SystemModel) ModelType() string      { return m.Type }
@@ -389,6 +416,7 @@ var modelRegistry = map[string]func() Model{
 	"event":         func() Model { return &EventModel{} },
 	"system":        func() Model { return &SystemModel{} },
 	"asset":         func() Model { return &AssetModel{} },
+	"block":         func() Model { return &BlockModel{} },
 }
 
 var TypeDir = map[string]string{
@@ -400,6 +428,7 @@ var TypeDir = map[string]string{
 	"event":         "Event",
 	"system":        "System",
 	"asset":         "Asset",
+	"block":         "Block",
 }
 
 type modelHeader struct {
@@ -525,6 +554,20 @@ func defaultModel(compType, domain, name string) ([]byte, error) {
 			Type: compType, Name: name, Namespace: domain,
 			Kind: "texture",
 			Path: "Assets/Textures/" + name + ".bmp",
+		}
+		out, err := yaml.Marshal(&m)
+		if err != nil {
+			return nil, err
+		}
+		return out, nil
+	case "block":
+		m := BlockModel{
+			Type: compType, Name: name, Namespace: domain,
+			TileIndex: 0,
+			Colors:    BlockFaceColors{Top: 0x808080, Bottom: 0x808080, Side: 0x808080},
+			Solid:     true,
+			Hardness:  1.0,
+			Drop:      name,
 		}
 		out, err := yaml.Marshal(&m)
 		if err != nil {

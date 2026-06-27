@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	"Game-Developers-World/seed/internal/baker"
 	"Game-Developers-World/seed/internal/generators/templates"
 )
 
@@ -30,6 +31,7 @@ var validTypes = map[string]bool{
 	"event":         true,
 	"system":        true,
 	"asset":         true,
+	"block":         true,
 }
 
 type ModelEntry struct {
@@ -79,7 +81,7 @@ func scanAllModels() ([]ModelEntry, error) {
 	return models, nil
 }
 
-var typeOrder = []string{"component", "trait", "entity", "archetype", "state_machine", "event", "system", "asset"}
+var typeOrder = []string{"component", "trait", "entity", "archetype", "state_machine", "event", "system", "asset", "block"}
 
 func CreateModel(compType, name string) error {
 	if !validTypes[compType] {
@@ -135,16 +137,25 @@ func Sync() error {
 		if len(entries) == 0 {
 			continue
 		}
-		n, err := syncEntries(t, entries, reg)
-		if err != nil {
-			allErrs = append(allErrs, err)
+		if t == "block" {
+			n, err := syncBlocks(entries, reg)
+			if err != nil {
+				allErrs = append(allErrs, err)
+			}
+			counts[t] = n
+		} else {
+			n, err := syncEntries(t, entries, reg)
+			if err != nil {
+				allErrs = append(allErrs, err)
+			}
+			counts[t] = n
 		}
-		counts[t] = n
 	}
 
-	fmt.Printf("Synced %d components, %d traits, %d entities, %d archetypes, %d state_machines, %d events, %d assets, %d systems.\n",
+	fmt.Printf("Synced %d components, %d traits, %d entities, %d archetypes, %d state_machines, %d events, %d assets, %d systems, %d blocks.\n",
 		counts["component"], counts["trait"], counts["entity"],
-		counts["archetype"], counts["state_machine"], counts["event"], counts["asset"], counts["system"])
+		counts["archetype"], counts["state_machine"], counts["event"], counts["asset"], counts["system"],
+		counts["block"])
 
 	if err := injectBootstrap(counts); err != nil {
 		fmt.Fprintf(os.Stderr, "  Error updating bootstrap: %v\n", err)
@@ -233,6 +244,155 @@ func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry) (int
 	}
 
 	return count, nil
+}
+
+func syncBlocks(entries []ModelEntry, reg *ModelRegistry) (int, error) {
+	if len(entries) == 0 {
+		return 0, nil
+	}
+
+	// Determine project root (where .seed_project lives)
+	wd, err := os.Getwd()
+	if err != nil {
+		return 0, fmt.Errorf("getting work dir: %w", err)
+	}
+
+	profile := baker.ReadProfile(wd)
+
+	// Load the block template
+	tplContent, err := templates.Load("block")
+	if err != nil {
+		return 0, fmt.Errorf("loading block template: %w", err)
+	}
+
+	funcMap := template.FuncMap{}
+	tpl, err := template.New("block").Funcs(funcMap).Parse(tplContent)
+	if err != nil {
+		return 0, fmt.Errorf("parsing block template: %w", err)
+	}
+
+	// Read all block models
+	var blockModels []*BlockModel
+	var atlasPath string
+	for _, entry := range entries {
+		model, err := readModel("block", entry.Path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  Error reading block %s: %v\n", entry.Path, err)
+			continue
+		}
+		bm := model.(*BlockModel)
+		blockModels = append(blockModels, bm)
+		if bm.AtlasPath != "" {
+			atlasPath = bm.AtlasPath
+		}
+	}
+
+	if len(blockModels) == 0 {
+		return 0, nil
+	}
+
+	// Bake the texture atlas to get tile colors
+	tileColors, err := baker.BakeAtlasIfExists(wd, atlasPath, profile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not bake atlas: %v (using YAML colors)\n", err)
+		// Fall back to colors defined in YAML
+	}
+
+	// Build template data
+	type BlockEntry struct {
+		Name         string
+		EnumName     string
+		ColorTop     uint32
+		ColorBottom  uint32
+		ColorSide    uint32
+		Solid        string
+		Transparent  string
+		Fluid        string
+		Hardness     float32
+	}
+	type BlockData struct {
+		Namespace string
+		Profile   string
+		Blocks    []BlockEntry
+	}
+
+	entryName := "BlockRegistry"
+	ns := blockModels[0].Namespace
+
+	var blocks []BlockEntry
+	for _, bm := range blockModels {
+		enumName := bm.Name
+		if len(enumName) > 0 && enumName[0] >= 'a' && enumName[0] <= 'z' {
+			enumName = strings.ToUpper(enumName[:1]) + enumName[1:]
+		}
+
+		// Determine colors: prefer atlas-baked, fall back to YAML-defined
+		colorTop := bm.Colors.Top
+		colorBottom := bm.Colors.Bottom
+		colorSide := bm.Colors.Side
+
+		if tileColors != nil && int(bm.TileIndex) < len(tileColors) {
+			// Atlas-baked colors override YAML colors
+			colorTop = baker.ApplyLightMultiplier(tileColors[bm.TileIndex].Average, 1.0)
+			colorBottom = baker.ApplyLightMultiplier(tileColors[bm.TileIndex].Average, 0.5)
+			colorSide = baker.ApplyLightMultiplier(tileColors[bm.TileIndex].Average, 0.7)
+		}
+
+		solidStr := "true"
+		if !bm.Solid {
+			solidStr = "false"
+		}
+		transparentStr := "true"
+		if !bm.Transparent {
+			transparentStr = "false"
+		}
+		fluidStr := "true"
+		if !bm.Fluid {
+			fluidStr = "false"
+		}
+
+		blocks = append(blocks, BlockEntry{
+			Name:         bm.Name,
+			EnumName:     enumName,
+			ColorTop:     colorTop,
+			ColorBottom:  colorBottom,
+			ColorSide:    colorSide,
+			Solid:        solidStr,
+			Transparent:  transparentStr,
+			Fluid:        fluidStr,
+			Hardness:     float32(bm.Hardness),
+		})
+	}
+
+	data := BlockData{
+		Namespace: ns,
+		Profile:   string(profile),
+		Blocks:    blocks,
+	}
+
+	// Write output header
+	outDir := filepath.Join(".", "Include", ns)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		return 0, fmt.Errorf("creating output directory: %w", err)
+	}
+
+	outputPath := filepath.Join(outDir, entryName+".hpp")
+	f, err := os.Create(outputPath)
+	if err != nil {
+		return 0, fmt.Errorf("creating %s: %w", outputPath, err)
+	}
+	defer f.Close()
+
+	if err := tpl.Execute(f, data); err != nil {
+		return 0, fmt.Errorf("rendering %s: %w", outputPath, err)
+	}
+
+	if err := formatCode(outputPath); err != nil {
+		fmt.Fprintf(os.Stderr, "  Warning: could not format %s: %v\n", outputPath, err)
+	}
+	fmt.Printf("  %11s  %s\n", "create", outputPath)
+
+	return len(blockModels), nil
 }
 
 func syncParts(compType string, model Model, parentName, parentNS string, tpl *template.Template) (int, error) {

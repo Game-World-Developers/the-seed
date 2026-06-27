@@ -29,6 +29,9 @@ var eventTemplate string
 //go:embed asset.hpp.tmpl
 var assetTemplate string
 
+//go:embed block.hpp.tmpl
+var blockTemplate string
+
 //go:embed system.cpp.tmpl
 var systemCppTemplate string
 
@@ -53,6 +56,8 @@ func Load(kind string) (string, error) {
 		return eventTemplate, nil
 	case "asset":
 		return assetTemplate, nil
+	case "block":
+		return blockTemplate, nil
 	default:
 		return "", fmt.Errorf("unknown template kind: %s", kind)
 	}
