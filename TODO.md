@@ -94,17 +94,41 @@ facilities, tooling, and generated glue that make them work as one SDK.
 
 ## Phase 2: Introduce a semantic compiler
 
-- [ ] Separate YAML decoding from semantic model construction.
-- [ ] Introduce typed source locations so diagnostics can identify file, field,
-  and related declarations.
-- [ ] Build a project-wide symbol table for names and namespaces.
-- [ ] Resolve cross-model references independently from code generation.
-- [ ] Validate duplicates, cycles, missing references, incompatible types, and
-  invalid execution dependencies.
-- [ ] Collect diagnostics and return a failing exit code when errors exist.
-- [ ] Replace generator-side warnings that currently allow partial success with
-  structured errors.
-- [ ] Add semantic tests that do not depend on rendered C++ text.
+- [x] Separate YAML decoding from semantic model construction.
+  (`generators.Compile` in `internal/generators/semantic.go`: a decode phase
+  builds typed models, then a distinct resolution/validation phase walks
+  them against the symbol table)
+- [x] Introduce typed source locations so diagnostics can identify file, field,
+  and related declarations. (`SourceLocation{File, ModelType, ModelName,
+  Namespace, Field}`)
+- [x] Build a project-wide symbol table for names and namespaces.
+  (`symbolTable`, keyed by `(type, name, namespace)` — fixes the Phase 1
+  collision gap; ambiguous unqualified references across namespaces are
+  now a diagnostic instead of silently picking one)
+- [x] Resolve cross-model references independently from code generation.
+  (`Compile` performs resolution/validation and produces no C++; `Sync` only
+  generates after a clean compile)
+- [x] Validate duplicates, cycles, missing references, incompatible types, and
+  invalid execution dependencies. (duplicate declarations, missing/ambiguous
+  references, cyclic reference graphs, and state-machine transitions
+  targeting undeclared states are all reported as diagnostics; field
+  declarations are checked for empty/duplicate names and malformed type
+  tokens. Full type-compatibility checking — e.g. a System writing a `float`
+  into a `bool` field — is not possible yet because `FieldDef.Type` has no
+  formal Seed-level type system, only a pass-through C++ token; that design
+  decision is still open and is called out in `semantic.go`'s
+  `validateFields` doc comment)
+- [x] Collect diagnostics and return a failing exit code when errors exist.
+  (`CompileResult.HasErrors`/`Errors`; `Sync` returns a non-nil error and
+  aborts before generating any output when errors exist)
+- [x] Replace generator-side warnings that currently allow partial success with
+  structured errors. (`Sync`'s pre-flight compile gate; the existing
+  I/O-level warnings during generation itself are unchanged, as they are a
+  different failure class than semantic validation)
+- [x] Add semantic tests that do not depend on rendered C++ text.
+  (`tests/generators_semantic_test.go`: valid domain, missing reference,
+  duplicate declaration, ambiguous reference, invalid transition target, and
+  `Sync` aborting before generating any file)
 
 ## Phase 3: Create an inspectable IR
 

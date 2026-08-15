@@ -112,7 +112,22 @@ func CreateModel(compType, name string) error {
 	return nil
 }
 
+// Sync validates all models with Compile before generating any C++ output.
+// A model set with Error-level diagnostics is never partially generated —
+// see docs/semantics.md's Phase 2 decisions for why silent partial success
+// was replaced with a hard failure here.
 func Sync() error {
+	compiled, err := Compile()
+	if err != nil {
+		return fmt.Errorf("compiling models: %w", err)
+	}
+	for _, d := range compiled.Diagnostics {
+		fmt.Fprintf(os.Stderr, "  %s\n", d)
+	}
+	if compiled.HasErrors() {
+		return fmt.Errorf("sync aborted: %d semantic error(s) found", len(compiled.Errors()))
+	}
+
 	models, err := scanAllModels()
 	if err != nil {
 		return fmt.Errorf("scanning models: %w", err)
@@ -300,15 +315,15 @@ func syncBlocks(entries []ModelEntry, reg *ModelRegistry) (int, error) {
 
 	// Build template data
 	type BlockEntry struct {
-		Name         string
-		EnumName     string
-		ColorTop     uint32
-		ColorBottom  uint32
-		ColorSide    uint32
-		Solid        string
-		Transparent  string
-		Fluid        string
-		Hardness     float32
+		Name        string
+		EnumName    string
+		ColorTop    uint32
+		ColorBottom uint32
+		ColorSide   uint32
+		Solid       string
+		Transparent string
+		Fluid       string
+		Hardness    float32
 	}
 	type BlockData struct {
 		Namespace string
@@ -352,15 +367,15 @@ func syncBlocks(entries []ModelEntry, reg *ModelRegistry) (int, error) {
 		}
 
 		blocks = append(blocks, BlockEntry{
-			Name:         bm.Name,
-			EnumName:     enumName,
-			ColorTop:     colorTop,
-			ColorBottom:  colorBottom,
-			ColorSide:    colorSide,
-			Solid:        solidStr,
-			Transparent:  transparentStr,
-			Fluid:        fluidStr,
-			Hardness:     float32(bm.Hardness),
+			Name:        bm.Name,
+			EnumName:    enumName,
+			ColorTop:    colorTop,
+			ColorBottom: colorBottom,
+			ColorSide:   colorSide,
+			Solid:       solidStr,
+			Transparent: transparentStr,
+			Fluid:       fluidStr,
+			Hardness:    float32(bm.Hardness),
 		})
 	}
 
