@@ -1,0 +1,8 @@
+type: component
+name: Health
+namespace: Core
+fields:
+  - name: current
+    type: int
+  - name: max
+    type: int

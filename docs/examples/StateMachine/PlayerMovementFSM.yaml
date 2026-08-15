@@ -1,0 +1,18 @@
+type: state_machine
+name: PlayerMovementFSM
+namespace: Core
+entity: PlayerEntity
+initial: Idle
+priority: 0
+events:
+  - StartMoveEvent
+  - StopMoveEvent
+states:
+  - name: Idle
+    transitions:
+      - event: StartMoveEvent
+        target: Running
+  - name: Running
+    transitions:
+      - event: StopMoveEvent
+        target: Idle

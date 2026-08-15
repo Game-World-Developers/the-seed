@@ -1,0 +1,13 @@
+type: block
+name: StoneBlock
+namespace: Core
+tile_index: 1
+colors:
+  top: 0x808080
+  bottom: 0x808080
+  side: 0x808080
+solid: true
+transparent: false
+hardness: 1.5
+drop: StoneBlock
+atlas_path: Assets/Textures/TerrainAtlas.bmp

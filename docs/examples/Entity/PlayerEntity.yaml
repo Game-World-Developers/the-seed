@@ -1,0 +1,6 @@
+type: entity
+name: PlayerEntity
+namespace: Core
+traits:
+  - Movable
+  - Living

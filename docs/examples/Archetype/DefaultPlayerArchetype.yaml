@@ -1,0 +1,4 @@
+type: archetype
+name: DefaultPlayerArchetype
+namespace: Core
+entity: PlayerEntity

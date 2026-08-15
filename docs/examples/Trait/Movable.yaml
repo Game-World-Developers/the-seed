@@ -1,0 +1,6 @@
+type: trait
+name: Movable
+namespace: Core
+components:
+  - Position
+  - Velocity

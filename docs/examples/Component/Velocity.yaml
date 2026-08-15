@@ -1,0 +1,10 @@
+type: component
+name: Velocity
+namespace: Core
+fields:
+  - name: dx
+    type: float
+  - name: dy
+    type: float
+  - name: dz
+    type: float

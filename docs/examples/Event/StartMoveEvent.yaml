@@ -1,0 +1,8 @@
+type: event
+name: StartMoveEvent
+namespace: Core
+fields:
+  - name: dx
+    type: float
+  - name: dy
+    type: float

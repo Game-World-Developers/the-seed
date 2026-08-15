@@ -1,0 +1,5 @@
+type: trait
+name: Living
+namespace: Core
+components:
+  - Health

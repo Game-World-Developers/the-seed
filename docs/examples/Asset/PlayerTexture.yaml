@@ -1,0 +1,5 @@
+type: asset
+name: PlayerTexture
+namespace: Core
+kind: texture
+path: Assets/Textures/Player.bmp

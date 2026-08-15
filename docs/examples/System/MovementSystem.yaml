@@ -1,0 +1,9 @@
+type: system
+name: MovementSystem
+namespace: Core
+priority: 0
+entities:
+  - PlayerEntity
+access:
+  - Position
+  - Velocity
