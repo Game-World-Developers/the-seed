@@ -54,6 +54,61 @@ facilities, tooling, and generated glue that make them work as one SDK.
 - Manual C++ must be a supported escape hatch with stable extension points.
 - Invalid or ambiguous models must fail with actionable diagnostics.
 
+## Ownership and third-party boundaries
+
+Seed owns the meaning of a Seed world and the contracts that keep it portable,
+deterministic, inspectable, and independent from any one backend. Generic
+low-level mechanisms should be delegated to focused third-party packages rather
+than reimplemented inside Seed.
+
+### Seed-owned responsibilities
+
+- [x] Keep the domain language, semantic compiler, versioned IR, project
+  conventions, lifecycle, capability model, generated glue, diagnostics, and
+  backend contracts inside Seed.
+- [ ] Build the Cardinal runtime as a Seed library: typed event queues, FSM
+  instances, guard evaluation, deterministic transition selection, command
+  buffering and atomic application, resulting-event delivery, and causal trace
+  production.
+- [ ] Keep world-level policies in Seed even when their mechanisms use external
+  libraries: presentation extraction, input mapping, persistence schemas,
+  replication/authority rules, asset identity/cooking policy, and compatibility
+  between packaged worlds.
+- [ ] Define narrow adapters so game-domain code consumes Seed concepts instead
+  of GameAK, SDL, physics, networking, database, or renderer APIs directly.
+
+### Delegated mechanisms
+
+- [x] Delegate ECS storage, runtime entity identity, component queries, layout,
+  and low-level system execution to GameAK; Seed owns their domain mapping and
+  deterministic execution contract.
+- [x] Delegate windows, devices, clocks, platform events, filesystem/platform
+  services, and basic audio to SDL3; Seed owns lifecycle, capabilities, input
+  mapping, and the conversion of platform input into domain events.
+- [x] Delegate image and font decoding/rasterization to SDL_image and SDL_ttf;
+  Seed owns asset identity, manifests, caching, lifecycle, and diagnostics.
+- [x] Delegate native build orchestration and dependency/toolchain integration
+  to XMake and platform compilers; Seed owns generated build conventions,
+  supported-target policy, and validation.
+- [ ] Use SDL's rendering facilities for the minimal backend, keeping Seed's
+  simulation-to-presentation extraction and render-command contract independent
+  so another renderer can be added without changing the world model.
+- [ ] Treat physics as an optional adapter over a focused library (for example
+  Box2D or Jolt), never as a new physics engine inside Seed.
+- [ ] Delegate network transport, encryption, and delivery mechanics to a
+  focused library; keep authority, replication, interest management, schema
+  compatibility, and any future Seed Nexus semantics inside Seed.
+- [ ] Delegate storage engines to external databases or local stores; keep
+  persistent identity, save schemas, migrations, checkpoints, and deterministic
+  restoration semantics inside Seed.
+- [ ] Delegate texture/model/audio conversion, shader compilation, compression,
+  and other platform-specific asset transformations to established tools; Seed
+  orchestrates them through typed cookers and produces the final manifest.
+
+Optional integrations above are architectural boundaries, not requirements for
+the first playable milestone. A third-party mechanism is adopted only when a
+concrete Seed capability needs it.
+
 ## Current baseline
 
 - [x] Cobra-based CLI with project scaffolding.
@@ -564,27 +619,70 @@ no SDK/toolchain here to attempt them against. Full detail in
 
 ## Phase 9: Rails-inspired developer experience
 
-- [ ] Normalize the command vocabulary and aliases around `seed new`,
+Full detail and reasoning for every item in `docs/developer-experience.md`.
+All commands below were run against a real project while implementing
+this phase — including one real bug found and fixed (a facility
+generator's include path) via an actual `seed build`, not just checked
+for help-text or Go-template correctness.
+
+- [x] Normalize the command vocabulary and aliases around `seed new`,
   `seed generate`, `seed destroy`, `seed compile`, and `seed sync`.
-- [ ] Make generators create domain-oriented models with useful conventions.
-- [ ] Add `seed explain <model>` to show semantic interpretation and GameAK
-  mapping.
-- [ ] Add `seed inspect models` to show resolved declarations and relationships.
-- [ ] Add `seed inspect schedule` to show execution phases and dependencies.
-- [ ] Add `seed inspect events` to show producers, consumers, and delivery.
-- [ ] Add `seed inspect storage` to show inferred layouts and their rationale.
-- [ ] Add `seed inspect cardinal` to summarize active loops, machines, rules,
-  pending events, and recent decisions.
-- [ ] Evolve `seed debug` into a console/dashboard for the compiled project model.
-- [ ] Introduce explicit migrations if model or generated-state evolution needs
-  versioned transformations.
-- [ ] Provide actionable errors with suggested commands or model changes.
-- [ ] Add conventions and generators for application, scene, input map, render
+  (`docs/developer-experience.md` §1 — `generate`/`destroy` are additive
+  top-level aliases for `model generate`/`model delete`, same underlying
+  functions, no behavior drift between spellings)
+- [x] Make generators create domain-oriented models with useful conventions.
+  (§2 — reviewed, already true before this pass: `CreateAll`'s starter set
+  is a cohesive small domain, not disconnected stubs; no changes needed)
+- [x] Add `seed explain <model>` to show semantic interpretation and GameAK
+  mapping. (§3 — `seed explain <type> <name>`, coexisting with the more
+  specific pre-existing `seed explain transition ...`)
+- [x] Add `seed inspect models` to show resolved declarations and relationships.
+  (§4-8 — all inspect subcommands read the IR, never raw YAML)
+- [x] Add `seed inspect schedule` to show execution phases and dependencies.
+  (§4-8 — "phases" aren't part of the schema yet per `docs/semantics.md`
+  §8; this shows the complete Priority-based ordering picture that exists)
+- [x] Add `seed inspect events` to show producers, consumers, and delivery.
+  (§4-8 — explicitly labeled a declared-relationship view, not a live
+  delivery report, per `docs/cardinal.md` §5's gap)
+- [x] Add `seed inspect storage` to show inferred layouts and their rationale.
+  (§4-8 — every entity is AoS today; the "rationale" is that no schema
+  field exists yet to request otherwise, per `docs/gameak-mapping.md` §1)
+- [x] Add `seed inspect cardinal` to summarize active loops, machines, rules,
+  pending events, and recent decisions. (§4-8 — **static declarations
+  only**, explicitly labeled as such: "active"/"pending"/"recent" in the
+  live sense need a running or recorded execution this codebase doesn't
+  produce yet, per `docs/cardinal.md`'s Known gap)
+- [x] Evolve `seed debug` into a console/dashboard for the compiled project model.
+  (§9 — a new Cardinal screen reads the IR (the compiled model); the
+  TUI's other tabs still read pre-compile data, a stated partial scope,
+  not a full rewrite)
+- [x] Introduce explicit migrations if model or generated-state evolution
+  needs versioned transformations. (§10 — **decision: not introduced**,
+  because the roadmap's own trigger condition hasn't occurred yet — no
+  breaking IR/trace change has happened; introducing a migration runner
+  speculatively risks not fitting whatever the actual first breaking
+  change turns out to need)
+- [x] Provide actionable errors with suggested commands or model changes.
+  (§11 — `suggestFor` in `internal/commands/suggest.go`, wired into
+  `compile`/`sync`)
+- [x] Add conventions and generators for application, scene, input map, render
   feature, audio bus, and asset pack—not only GameAK-oriented models.
-- [ ] Make `seed doctor` explain missing SDKs and target-specific build
-  requirements.
-- [ ] Add `seed run`, `seed build`, `seed test`, and `seed package` with consistent
-  target and profile options.
+  (§12 — `seed generate scene`/`asset_pack` implemented and
+  compile-verified; input map/audio bus/render feature deliberately have
+  no generator, each already a single directly-usable type with no
+  per-instance boilerplate to scaffold — a stated reasoned decision, not
+  an oversight. "application" also not implemented: Seed projects are
+  single-application by construction today, no multi-app concept exists
+  to generate an instance of)
+- [x] Make `seed doctor` explain missing SDKs and target-specific build
+  requirements. (§13 — mode-aware checks: glslc for 3D, non-fatal since
+  shaders ship precompiled; a real GameAK-pin-vs-checkout comparison via
+  the vendored git history)
+- [x] Add `seed run`, `seed build`, `seed test`, and `seed package` with consistent
+  target and profile options. (§14 — `seed package` already existed
+  (Phase 8); `build`/`run`/`test` added with a shared `--profile`, which
+  required discovering and working around a real xmake quirk — build/run/
+  test don't accept a mode flag directly, only `xmake f` does)
 
 ## Phase 10: Safe generation and extension points
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"Game-Developers-World/seed/internal/generators"
+	"Game-Developers-World/seed/internal/ir"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -20,6 +21,7 @@ const (
 	screenList
 	screenDetail
 	screenProblems
+	screenCardinal
 )
 
 type model struct {
@@ -42,6 +44,9 @@ type model struct {
 	problems    []generators.Problem
 	problemsErr error
 
+	cardinal    *ir.IR
+	cardinalErr error
+
 	err error
 }
 
@@ -53,6 +58,11 @@ type detailLoadedMsg struct {
 type problemsLoadedMsg struct {
 	problems []generators.Problem
 	err      error
+}
+
+type cardinalLoadedMsg struct {
+	model *ir.IR
+	err   error
 }
 
 var tabNames = []string{
@@ -191,6 +201,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case cardinalLoadedMsg:
+		if msg.err != nil {
+			m.cardinalErr = msg.err
+		} else {
+			m.cardinal = msg.model
+			m.cardinalErr = nil
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -216,6 +235,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "p":
 			return m.handleToggleProblems()
+
+		case "c":
+			return m.handleToggleCardinal()
 		}
 	}
 
@@ -229,6 +251,8 @@ func (m model) handleEsc() (model, tea.Cmd) {
 		m.detail = nil
 		m.detailErr = nil
 	case screenProblems:
+		m.screen = screenDashboard
+	case screenCardinal:
 		m.screen = screenDashboard
 	}
 	return m, nil
@@ -327,6 +351,41 @@ func (m model) handleToggleProblems() (model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleToggleCardinal() (model, tea.Cmd) {
+	if m.screen == screenCardinal {
+		m.screen = screenDashboard
+		return m, nil
+	}
+	m.screen = screenCardinal
+	m.selected = 0
+	if m.cardinal == nil && m.cardinalErr == nil {
+		return m, loadCardinal()
+	}
+	return m, nil
+}
+
+// loadCardinal builds the IR the same way "seed compile"/"seed inspect
+// cardinal" do (generators.Compile -> ir.Build) — this is what makes the
+// Cardinal screen a view of the *compiled* project model (resolved
+// references, validated structure) rather than the raw YAML list the
+// other tabs show, which is the specific gap "evolve seed debug into a
+// console/dashboard for the compiled project model" calls out. The rest
+// of this TUI (list/detail/problems) is unchanged and still reads
+// pre-compile data; evolving those too is future work, not done here.
+func loadCardinal() tea.Cmd {
+	return func() tea.Msg {
+		result, err := generators.Compile()
+		if err != nil {
+			return cardinalLoadedMsg{err: err}
+		}
+		if result.HasErrors() {
+			return cardinalLoadedMsg{err: fmt.Errorf("%d semantic error(s); run 'seed compile' for details", len(result.Errors()))}
+		}
+		built, err := ir.Build(result)
+		return cardinalLoadedMsg{model: built, err: err}
+	}
+}
+
 func loadDetail(compType, domain, name string) tea.Cmd {
 	return func() tea.Msg {
 		d, err := generators.GetModelDetail(compType, domain, name)
@@ -385,6 +444,8 @@ func (m model) View() string {
 		b.WriteString(m.detailView())
 	case screenProblems:
 		b.WriteString(m.problemsView())
+	case screenCardinal:
+		b.WriteString(m.cardinalView())
 	}
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
@@ -456,7 +517,7 @@ func (m model) dashboardView() string {
 	}
 
 	b.WriteString("\n\n")
-	b.WriteString(subtleStyle().Render("Enter focus · Tab navigate · p problems · q quit"))
+	b.WriteString(subtleStyle().Render("Enter focus · Tab navigate · p problems · c cardinal · q quit"))
 
 	return b.String()
 }
@@ -516,7 +577,7 @@ func (m model) listView() string {
 
 	b.WriteString("\n")
 	b.WriteString(subtleStyle().Render(
-		fmt.Sprintf("↑ ↓ navigate · Enter detail · Tab switch · p problems · q quit (showing %d)", len(models)),
+		fmt.Sprintf("↑ ↓ navigate · Enter detail · Tab switch · p problems · c cardinal · q quit (showing %d)", len(models)),
 	))
 
 	return b.String()
@@ -650,6 +711,61 @@ func (m model) problemsView() string {
 
 	b.WriteString("\n")
 	b.WriteString(subtleStyle().Render("↑ ↓ scroll · p toggle · Esc back · q quit"))
+
+	return b.String()
+}
+
+func (m model) cardinalView() string {
+	var b strings.Builder
+
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render("Cardinal (compiled model)"))
+	b.WriteString("\n\n")
+
+	if m.cardinalErr != nil {
+		b.WriteString(fmt.Sprintf("Error: %v\n", m.cardinalErr))
+		b.WriteString("\n")
+		b.WriteString(subtleStyle().Render("c toggle · Esc back · q quit"))
+		return b.String()
+	}
+	if m.cardinal == nil {
+		b.WriteString("Loading...\n")
+		return b.String()
+	}
+
+	if len(m.cardinal.Schedule) > 0 {
+		b.WriteString(detailLabelStyle.Render("Schedule"))
+		b.WriteString("\n")
+		for _, s := range m.cardinal.Schedule {
+			b.WriteString(fmt.Sprintf("  [%3d] %s\n", s.Priority, s.Qualified()))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.cardinal.StateMachines) > 0 {
+		b.WriteString(detailLabelStyle.Render("State machines"))
+		b.WriteString("\n")
+		for _, sm := range m.cardinal.StateMachines {
+			transitions, guarded := 0, 0
+			for _, s := range sm.States {
+				for _, t := range s.Transitions {
+					transitions++
+					if t.Guard != nil {
+						guarded++
+					}
+				}
+			}
+			b.WriteString(fmt.Sprintf("  %s — %d states, %d transitions (%d guarded)\n",
+				sm.Qualified(), len(sm.States), transitions, guarded))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(m.cardinal.Schedule) == 0 && len(m.cardinal.StateMachines) == 0 {
+		b.WriteString(subtleStyle().Render("No systems or state machines declared.\n\n"))
+	}
+
+	b.WriteString(subtleStyle().Render("Static declarations only — no live or recorded run (see 'seed trace'/'seed replay')\n"))
+	b.WriteString(subtleStyle().Render("c toggle · Esc back · q quit"))
 
 	return b.String()
 }

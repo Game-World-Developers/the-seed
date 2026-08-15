@@ -36,7 +36,7 @@ target("{{.Name}}")
     -- xmake.lua for why); MSVC doesn't recognize it, so it's scoped by
     -- `tools` rather than applied unconditionally, matching the same fix
     -- made there.
-    add_cxxflags("-Wno-interference-size", {tools = {"clang", "gcc"}})
+    add_cxxflags("-Wno-interference-size", {tools = {"clang", "gcc", "clangxx", "gxx"}})
 
     -- Platform differences declared here, not left implicit in what
     -- happens to work on whichever machine last built the project:

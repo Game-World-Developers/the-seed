@@ -40,6 +40,9 @@ a human-readable summary.`,
 
 		for _, d := range result.Diagnostics {
 			fmt.Fprintf(os.Stderr, "  %s\n", d)
+			if s := suggestFor(d.Message); s != "" {
+				fmt.Fprintf(os.Stderr, "    %s\n", s)
+			}
 		}
 
 		if result.HasErrors() {
@@ -55,6 +58,9 @@ a human-readable summary.`,
 		hasBackendErrors := false
 		for _, d := range backendDiags {
 			fmt.Fprintf(os.Stderr, "  %s\n", d)
+			if s := suggestFor(d.Message); s != "" {
+				fmt.Fprintf(os.Stderr, "    %s\n", s)
+			}
 			if d.Severity == gameak.SeverityError {
 				hasBackendErrors = true
 			}

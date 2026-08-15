@@ -38,6 +38,9 @@ func checkGameAKBackend() error {
 	hasErrors := false
 	for _, d := range diags {
 		fmt.Fprintf(os.Stderr, "  %s\n", d)
+		if s := suggestFor(d.Message); s != "" {
+			fmt.Fprintf(os.Stderr, "    %s\n", s)
+		}
 		if d.Severity == gameak.SeverityError {
 			hasErrors = true
 		}

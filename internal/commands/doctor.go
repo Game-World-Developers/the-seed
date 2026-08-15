@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"Game-Developers-World/seed/internal/generators"
+	"Game-Developers-World/seed/internal/project"
 
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -44,6 +46,7 @@ Verifies:
 		results = append(results, checkOrphanedFiles()...)
 		results = append(results, checkDuplicateNames()...)
 		results = append(results, checkThirdParty()...)
+		results = append(results, checkTargetSDKs()...)
 
 		fmt.Println()
 		fmt.Println("═ seed doctor ════════════════════════════════════")
@@ -198,7 +201,84 @@ func checkThirdParty() []checkResult {
 		}
 	}
 
-	return []checkResult{{"GameAK", "ok", ""}}
+	results := []checkResult{{"GameAK", "ok", ""}}
+
+	repo, err := gogit.PlainOpen(gameakPath)
+	if err != nil {
+		// Not a git checkout (e.g. vendored by hand) — nothing to compare
+		// the pin against, and that's not itself a problem this check
+		// should report on.
+		return results
+	}
+	head, err := repo.Head()
+	if err != nil {
+		return results
+	}
+	actual := head.Hash().String()
+	if actual == project.GameAKPinnedRevision {
+		results = append(results, checkResult{"GameAK revision matches pin", "ok", ""})
+	} else {
+		results = append(results, checkResult{
+			"GameAK revision matches pin", "warn",
+			fmt.Sprintf("Third-Party/GameAK is at %s, pinned revision is %s (docs/gameak-mapping.md) — mappings and generated code were only verified against the pin",
+				shortSHA(actual), shortSHA(project.GameAKPinnedRevision)),
+		})
+	}
+	return results
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
+}
+
+// checkTargetSDKs reports build requirements specific to the current
+// project's mode (2d/3d/headless), detected from which renderer header
+// was scaffolded — "Make seed doctor explain missing SDKs and
+// target-specific build requirements" from the roadmap. Nothing here is a
+// hard failure: xmake resolves the SDL3/SDL3_image/SDL3_ttf packages
+// itself on first build (already exercised by this project's own compile
+// tests), so this is explanatory, not a preflight gate duplicating what
+// xmake already does.
+func checkTargetSDKs() []checkResult {
+	var results []checkResult
+
+	mode := "headless"
+	if _, err := os.Stat(filepath.Join(".", "Include", "Seed", "renderer_3d.hpp")); err == nil {
+		mode = "3d"
+	} else if _, err := os.Stat(filepath.Join(".", "Include", "Seed", "renderer_2d.hpp")); err == nil {
+		mode = "2d"
+	}
+
+	switch mode {
+	case "headless":
+		results = append(results, checkResult{
+			"Target: headless", "ok",
+			"No SDL_image/SDL_ttf required; xmake fetches libsdl3 only on first build",
+		})
+	case "2d":
+		results = append(results, checkResult{
+			"Target: 2d", "ok",
+			"xmake fetches libsdl3, libsdl3_image, libsdl3_ttf on first build (needs network the first time)",
+		})
+	case "3d":
+		results = append(results, checkResult{
+			"Target: 3d", "ok",
+			"xmake fetches libsdl3, libsdl3_image, libsdl3_ttf on first build (needs network the first time)",
+		})
+		if _, err := exec.LookPath("glslc"); err != nil {
+			results = append(results, checkResult{
+				"glslc (GLSL -> SPIR-V compiler)", "warn",
+				"Not found — not required to build (Renderer3D ships precompiled SPIR-V, see seed-shaders.hpp.tmpl), only if you modify shader source yourself",
+			})
+		} else {
+			results = append(results, checkResult{"glslc (GLSL -> SPIR-V compiler)", "ok", ""})
+		}
+	}
+
+	return results
 }
 
 func systemPartNames(name string) []string {
