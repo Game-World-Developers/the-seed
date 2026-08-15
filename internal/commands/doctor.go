@@ -53,6 +53,7 @@ Verifies:
 		fmt.Println()
 
 		allOK := true
+		hasFailure := false
 		for _, r := range results {
 			switch r.status {
 			case "ok":
@@ -63,6 +64,7 @@ Verifies:
 			case "fail":
 				fmt.Printf("  ✘  %s\n", r.name)
 				allOK = false
+				hasFailure = true
 			}
 			if r.detail != "" {
 				fmt.Printf("     %s\n", r.detail)
@@ -76,6 +78,16 @@ Verifies:
 			fmt.Println("  ⚠  Some checks failed. See details above.")
 		}
 
+		// Only a "fail" (not a "warn") returns a non-zero status: warnings
+		// are advisory (e.g. glslc missing, only needed if you edit
+		// shaders yourself — docs/developer-experience.md §13) and
+		// shouldn't break a CI step that just wants to know the project is
+		// usable. A "fail" means something doctor considers broken (no
+		// .seed_project, a missing GameAK checkout, an unresolvable model
+		// reference), which is exactly what a CI gate should catch.
+		if hasFailure {
+			return fmt.Errorf("doctor found failing checks")
+		}
 		return nil
 	},
 }

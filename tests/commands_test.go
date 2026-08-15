@@ -497,6 +497,29 @@ access: []
 			t.Fatalf("expected model name 'Gravity' in warning, got: %s", out)
 		}
 	})
+
+	t.Run("duplicate names are a warning only, doctor still exits 0", func(t *testing.T) {
+		_, err := runCmd("doctor")
+		if err != nil {
+			t.Fatalf("expected doctor to exit 0 on warnings only, got: %v", err)
+		}
+	})
+
+	t.Run("doctor exits non-zero when a check fails", func(t *testing.T) {
+		emptyDir := filepath.Join(tmpDir, "no-seed-project")
+		if err := os.MkdirAll(emptyDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(binPath, "doctor")
+		cmd.Dir = emptyDir
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected doctor to exit non-zero without a .seed_project, got: %s", out)
+		}
+		if !contains(string(out), "✘") {
+			t.Fatalf("expected a failing check marker, got: %s", out)
+		}
+	})
 }
 
 func contains(s, substr string) bool {

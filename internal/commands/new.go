@@ -42,9 +42,18 @@ If the project directory already exists, you will be prompted before overwriting
 					fmt.Println("Aborted.")
 					return nil
 				}
-				oldDir, _ := os.Getwd()
-				os.Chdir(root)
-				defer os.Chdir(oldDir)
+				oldDir, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("getting current directory: %w", err)
+				}
+				if err := os.Chdir(root); err != nil {
+					return fmt.Errorf("entering %s: %w", root, err)
+				}
+				defer func() {
+					if err := os.Chdir(oldDir); err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: could not return to %s: %v\n", oldDir, err)
+					}
+				}()
 				return project.ScaffoldInit(project.InitOpts{
 					Mode:      newMode,
 					Overwrite: true,

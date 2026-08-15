@@ -27,6 +27,8 @@ var importKinds = map[string]importAssetKind{
 	"shader":   {"Shaders", []string{".glsl", ".hlsl", ".spv"}},
 }
 
+var importOverwrite bool
+
 type assetYAML struct {
 	Type      string `yaml:"type"`
 	Name      string `yaml:"name"`
@@ -96,10 +98,29 @@ Examples:
 		}
 
 		destPath := filepath.Join(destDir, baseName)
-		if err := copyFile(srcPath, destPath); err != nil {
-			return fmt.Errorf("copying asset: %w", err)
+
+		// Resolve both sides (following symlinks where possible) before
+		// comparing — a relative srcPath and the Assets/ destPath can
+		// name the same file without being string-equal, and copyFile's
+		// os.Create(dst) truncates the destination before it's done
+		// reading the source: importing an asset that's already sitting
+		// in its own destination directory would otherwise truncate the
+		// file out from under the read that's supposed to copy it.
+		sameFile, err := sameUnderlyingFile(srcPath, destPath)
+		if err != nil {
+			return fmt.Errorf("checking source/destination: %w", err)
 		}
-		fmt.Printf("  %11s  %s\n", "create", destPath)
+		if sameFile {
+			fmt.Printf("  %11s  %s (source and destination are the same file)\n", "identical", destPath)
+		} else {
+			if _, err := os.Stat(destPath); err == nil && !importOverwrite {
+				return fmt.Errorf("%s already exists (use --overwrite to replace it)", destPath)
+			}
+			if err := copyFile(srcPath, destPath); err != nil {
+				return fmt.Errorf("copying asset: %w", err)
+			}
+			fmt.Printf("  %11s  %s\n", "create", destPath)
+		}
 
 		relPath, _ := filepath.Rel(".", destPath)
 		asset := assetYAML{
@@ -116,6 +137,9 @@ Examples:
 		}
 
 		yamlPath := filepath.Join(assetDir, name+".yaml")
+		if _, err := os.Stat(yamlPath); err == nil && !importOverwrite {
+			return fmt.Errorf("%s already exists (use --overwrite to replace it, or pass a different [name])", yamlPath)
+		}
 		out, err := yaml.Marshal(&asset)
 		if err != nil {
 			return fmt.Errorf("marshaling asset YAML: %w", err)
@@ -129,6 +153,38 @@ Examples:
 		fmt.Println(`  Run "seed sync" to generate C++ code.`)
 		return nil
 	},
+}
+
+// sameUnderlyingFile reports whether src and dst name the same file on
+// disk, resolving symlinks and relative paths first so e.g. importing
+// "Assets/Sprites/hero.png" (already in place) doesn't register as a
+// different path than the "hero.png" a caller typed from within
+// Assets/Sprites/. Neither path needs to exist yet for a correct answer:
+// if either is missing, they can't be the same file.
+func sameUnderlyingFile(src, dst string) (bool, error) {
+	srcResolved, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	dstResolved, err := filepath.EvalSymlinks(dst)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	srcAbs, err := filepath.Abs(srcResolved)
+	if err != nil {
+		return false, err
+	}
+	dstAbs, err := filepath.Abs(dstResolved)
+	if err != nil {
+		return false, err
+	}
+	return srcAbs == dstAbs, nil
 }
 
 func copyFile(src, dst string) error {
@@ -152,5 +208,6 @@ func copyFile(src, dst string) error {
 }
 
 func init() {
+	importCmd.Flags().BoolVarP(&importOverwrite, "overwrite", "o", false, "Overwrite an existing asset file or model YAML")
 	rootCmd.AddCommand(importCmd)
 }

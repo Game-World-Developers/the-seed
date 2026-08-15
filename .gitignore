@@ -1,0 +1,21 @@
+# Build artifacts. There was no .gitignore in this repository before
+# Phase 11 — "seed", the CLI binary produced by `go build -o seed
+# ./cmd/seed` (the exact command used throughout this project's own
+# development sessions), sat untracked in the repo root the entire time,
+# one `git add .` away from being committed by accident. This file exists
+# so that risk is closed, not just avoided by habit.
+/seed
+/seed.exe
+/seed-bin
+/seed-bin.exe
+/build/
+/dist/
+/coverage.out
+
+# Go
+*.test
+*.out
+
+# Editor/OS noise
+.DS_Store
+*.swp

@@ -7,16 +7,51 @@ on:
 
 jobs:
   go:
-    name: Go build, vet, and test
+    name: Go format, vet, build, and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: gofmt check
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
       - run: go build ./...
       - run: go vet ./...
       - run: go test ./... -count=1
+
+      # Repairs a real prior gap: `go test ./... -coverprofile=...` alone
+      # only attributes coverage to the package under test itself, so
+      # every package exercised solely through tests/*.go's black-box
+      # tests reported a false 0.0% (previously reading ~2.7% total
+      # instead of the real ~35%) — see Makefile's coverage-check target.
+      - name: Cross-package coverage
+        run: make coverage-check
+
+      - name: Generation determinism
+        run: |
+          set -euo pipefail
+          go build -o "$(pwd)/seed-bin" ./cmd/seed
+          BIN="$(pwd)/seed-bin"
+          work="$(mktemp -d)"
+          mkdir -p "$work/Models"
+          cp -r docs/examples/* "$work/Models/"
+          rm -f "$work/Models/README.md"
+          touch "$work/.seed_project"
+          ( cd "$work" && "$BIN" sync >/dev/null )
+          find "$work/Include" "$work/Src" -type f | sort | xargs sha256sum > /tmp/run1.sha
+          rm -rf "$work/Include" "$work/Src"
+          ( cd "$work" && "$BIN" sync >/dev/null )
+          find "$work/Include" "$work/Src" -type f | sort | xargs sha256sum > /tmp/run2.sha
+          diff /tmp/run1.sha /tmp/run2.sha && echo "Generation is deterministic."
 
   # Scaffolds all three project modes (headless/2d/3d) and builds each
   # with xmake against the pinned GameAK revision and real SDL3 packages

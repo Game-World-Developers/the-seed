@@ -86,9 +86,23 @@ func Scaffold(name, mode string) error {
 		return err
 	}
 	// Run sync inside the new project directory
-	oldDir, _ := os.Getwd()
-	os.Chdir(root)
-	defer os.Chdir(oldDir)
+	oldDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting current directory: %w", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		return fmt.Errorf("entering %s: %w", root, err)
+	}
+	defer func() {
+		if err := os.Chdir(oldDir); err != nil {
+			// The scaffold itself already succeeded by this point; failing
+			// to return to oldDir shouldn't discard that, but it must not
+			// be silent either — a caller running more commands right
+			// after Scaffold would otherwise operate from the wrong
+			// directory with no explanation.
+			fmt.Fprintf(os.Stderr, "  Warning: could not return to %s: %v\n", oldDir, err)
+		}
+	}()
 	return generators.Sync()
 }
 

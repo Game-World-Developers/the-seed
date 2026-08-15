@@ -725,16 +725,49 @@ writing.
 
 ## Phase 11: CLI and project hardening
 
-- [ ] Validate `seed new --mode` and all enum-like CLI inputs.
-- [ ] Handle working-directory changes and filesystem errors explicitly.
-- [ ] Make `seed doctor` return a non-zero status for failed checks.
-- [ ] Prevent accidental asset/model overwrite during `seed import`.
-- [ ] Handle imports whose source and destination refer to the same file.
-- [ ] Test the atlas baker, profiles, block generation, and error paths.
-- [ ] Repair and enforce coverage reporting in the development toolchain.
-- [ ] Add CI for formatting, vetting, tests, generation determinism, and C++
-  compilation.
-- [ ] Stop committing or leaving build artifacts in the repository root.
+Full detail in `docs/cli-hardening.md`. Three real bugs found and fixed
+while implementing this: a `seed import` file-corruption risk (truncating
+a file that was simultaneously its own copy source), a silently-discarded
+`os.Chdir` error that could leave `seed new` operating in the wrong
+directory, and a coverage measurement that had been under-reporting real
+coverage by roughly an order of magnitude (~2.7% shown vs. ~35% real).
+
+- [x] Validate `seed new --mode` and all enum-like CLI inputs. (§1 —
+  `--mode` already validated since Phase 7; audited every other enum-like
+  flag, `--platform` deliberately left open since it's a free-form
+  manifest label, not branched on internally)
+- [x] Handle working-directory changes and filesystem errors explicitly.
+  (§2 — real bug: `os.Chdir`'s error was discarded, so a failed chdir
+  left `seed new` silently operating in the wrong directory; now checked
+  and reported at both call sites)
+- [x] Make `seed doctor` return a non-zero status for failed checks.
+  (§3 — real bug: `RunE` always returned nil; now fails only on an actual
+  `"fail"`, not a `"warn"`, verified both ways with a real exit-code test)
+- [x] Prevent accidental asset/model overwrite during `seed import`. (§4 —
+  real bug: both the copied asset file and the generated YAML were
+  overwritten unconditionally; now require `--overwrite`)
+- [x] Handle imports whose source and destination refer to the same file.
+  (§5 — real bug: the old copy path would truncate the destination before
+  finishing reading it as the source when they were the same file; now
+  detected via resolved-path comparison and skipped)
+- [x] Test the atlas baker, profiles, block generation, and error paths.
+  (§6 — `internal/baker` had zero tests before this pass; now 100%
+  statement coverage plus a real end-to-end block-generation test
+  asserting an exact baked hex color, not just "a color")
+- [x] Repair and enforce coverage reporting in the development toolchain.
+  (§7 — real bug: the Makefile's `coverage` target was missing
+  `-coverpkg=./...`, so every package tested only via `tests/*.go`
+  black-box tests reported a false 0.0%; fixed, plus a new
+  `coverage-check` target enforcing a minimum, wired into `make ci`)
+- [x] Add CI for formatting, vetting, tests, generation determinism, and C++
+  compilation. (§8 — `gofmt`/`vet`/`test`/`coverage-check`/a real
+  sha256sum-diffed determinism check added to the existing CI workflow;
+  C++ compilation was already covered by Phase 8's scaffold-build matrix)
+- [x] Stop committing or leaving build artifacts in the repository root.
+  (§9 — real, live risk found: there was no `.gitignore` at all, and the
+  `seed` binary this project's own development sessions kept building sat
+  untracked in the repo root the whole time, one broad `git add` away
+  from being committed)
 
 ## Documentation
 
