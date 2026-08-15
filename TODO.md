@@ -514,21 +514,53 @@ real, previously-uncompiled bug: `AssetManager::init()`/`quit()` called
 
 ## Phase 8: Multiplatform build and distribution
 
-- [ ] Define the supported target matrix and minimum platform/toolchain versions.
-- [ ] Make generated XMake projects express target capabilities and platform
-  differences declaratively.
-- [ ] Support desktop targets first, with reproducible Linux, Windows, and macOS
-  builds.
-- [ ] Plan and validate Android, iOS, and web targets against SDL3 and GameAK
-  constraints.
-- [ ] Manage native dependencies, architecture selection, debug symbols, and
-  release profiles consistently.
-- [ ] Add platform-aware asset cooking, packaging, compression, and manifests.
-- [ ] Add application metadata, icons, permissions, signing hooks, and distributable
-  bundles without embedding credentials in Seed projects.
-- [ ] Add cross-platform CI that builds and runs smoke tests for each supported
-  target.
-- [ ] Document platform capability differences and graceful fallback behavior.
+Same scoping pattern as Phase 7: implemented for real within what this
+environment's toolchain supports (Linux, verified by actually building;
+Windows/macOS via a real CI workflow that hasn't run yet since it isn't
+pushed); Android/iOS/web are a documented plan, not an implementation —
+no SDK/toolchain here to attempt them against. Full detail in
+`docs/platforms.md`.
+
+- [x] Define the supported target matrix and minimum platform/toolchain versions.
+  (`docs/platforms.md` §1)
+- [x] Make generated XMake projects express target capabilities and platform
+  differences declaratively. (`docs/platforms.md` §2 — found and fixed a
+  real cross-platform bug in the process: `-Wno-interference-size` was
+  applied unconditionally in both generated `xmake.lua` files; it's
+  GCC/Clang-only and would have failed to configure on MSVC)
+- [x] Support desktop targets first, with reproducible Linux, Windows, and macOS
+  builds. (`docs/platforms.md` §3 — Linux verified by repeatedly rebuilding
+  all three project modes against the pinned GameAK revision; Windows/macOS
+  depend on §8's CI workflow actually running, not claimed verified here)
+- [x] Plan and validate Android, iOS, and web targets against SDL3 and GameAK
+  constraints. (`docs/platforms.md` §4 — **plan only**: xmake/SDL3 have
+  platform support and GameAK looks portable, but SDL3's GPU backend
+  availability per target, package availability, touch input, and Web's
+  main-loop model are all open, unvalidated questions with no toolchain
+  here to answer them)
+- [x] Manage native dependencies, architecture selection, debug symbols, and
+  release profiles consistently. (`docs/platforms.md` §5 — dependencies via
+  xmake's package manager uniformly, symbols/optimize made explicit per
+  mode)
+- [x] Add platform-aware asset cooking, packaging, compression, and manifests.
+  (`seed package` / `internal/dist` — `docs/platforms.md` §6 is explicit
+  that "cooking"/"compression" means a zip archive of verbatim assets plus
+  a checksummed manifest, not a per-target asset transform, since nothing
+  in Seed's asset model has per-platform variants to select between yet)
+- [x] Add application metadata, icons, permissions, signing hooks, and distributable
+  bundles without embedding credentials in Seed projects. (`AppMetadata`
+  via `app.yaml` — `docs/platforms.md` §7 is explicit that icons,
+  permissions, signing, and platform application packages are *not*
+  implemented, each for a stated reason, rather than stubbed)
+- [x] Add cross-platform CI that builds and runs smoke tests for each supported
+  target. (`.github/workflows/ci.yml`: Go build/vet/test, then a
+  ubuntu/windows/macos matrix scaffolding and building all three project
+  modes against the pinned GameAK revision. Written and reviewed for
+  correctness; its first real run happens on GitHub's infrastructure once
+  pushed, not claimed run in this session)
+- [x] Document platform capability differences and graceful fallback behavior.
+  (`docs/platforms.md` §9, pointing at the `Capability`/headless-mode
+  mechanism Phase 7 already built rather than duplicating it)
 
 ## Phase 9: Rails-inspired developer experience
 

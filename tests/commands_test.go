@@ -256,6 +256,66 @@ func TestCommandsBinary(t *testing.T) {
 			t.Fatal("expected no Include/ output when sync aborts on a backend collision")
 		}
 	})
+
+	t.Run("package builds a manifest+zip bundle from declared assets", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "package-project")
+		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Asset"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(projDir, "Assets", "Textures"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, "Assets", "Textures", "Player.bmp"), []byte("fake-bmp"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		asset := "type: asset\nname: PlayerTexture\nnamespace: Core\nkind: texture\npath: Assets/Textures/Player.bmp\n"
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Asset", "PlayerTexture.yaml"), []byte(asset), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binPath, "package", "--platform", "linux")
+		cmd.Dir = projDir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("package failed: %v\n%s", err, out)
+		}
+		if !contains(string(out), "1 asset(s)") {
+			t.Fatalf("expected '1 asset(s)' in output, got: %s", out)
+		}
+
+		bundlePath := filepath.Join(projDir, "dist")
+		entries, err := os.ReadDir(bundlePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected exactly 1 file in dist/, got %d", len(entries))
+		}
+	})
+
+	t.Run("package fails cleanly when an asset file is missing", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "package-missing-asset")
+		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Asset"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+		asset := "type: asset\nname: GhostTexture\nnamespace: Core\nkind: texture\npath: Assets/Textures/Ghost.bmp\n"
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Asset", "GhostTexture.yaml"), []byte(asset), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binPath, "package")
+		cmd.Dir = projDir
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected package to fail for a missing asset file, got: %s", out)
+		}
+	})
 }
 
 func TestDoctorChecks(t *testing.T) {

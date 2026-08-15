@@ -1,12 +1,22 @@
 add_rules("mode.debug", "mode.release")
 set_languages("c++20")
 
+-- ── Toolchain-specific flags ─────────────────────────────────────────
+-- -Wno-interference-size silences a GCC/Clang-only warning
+-- (std::hardware_destructive_interference_size ABI notice). Scoping it
+-- to those toolchains via `tools` — rather than applying it
+-- unconditionally, as before — matters because MSVC (the toolchain a
+-- Windows build in Phase 8's target matrix actually uses) doesn't
+-- recognize this flag at all and would fail to build with it applied
+-- unconditionally.
+local gcc_clang_only_flags = {"-Wno-interference-size"}
+
 target("gameak-core")
     set_kind("static")
     add_includedirs("Include", {public = true})
     add_includedirs("Libs", "Libs/cest")
     add_files("Src/GameAk/Core/*.cpp")
-    add_cxxflags("-Wno-interference-size", {public = true})
+    add_cxxflags(gcc_clang_only_flags, {public = true, tools = {"clang", "gcc"}})
 
 target("gameak-runtime")
     set_kind("static")
@@ -14,4 +24,4 @@ target("gameak-runtime")
     add_includedirs("Libs", "Libs/cest")
     add_files("Src/GameAk/Runtime/*.cpp")
     add_deps("gameak-core")
-    add_cxxflags("-Wno-interference-size", {public = true})
+    add_cxxflags(gcc_clang_only_flags, {public = true, tools = {"clang", "gcc"}})

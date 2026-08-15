@@ -7,6 +7,21 @@ add_requires("libsdl3_ttf")
 {{end}}
 includes("Third-Party/GameAK")
 
+-- ── Target matrix — see docs/platforms.md ───────────────────────────
+-- xmake's mode.debug/mode.release rules already set reasonable defaults
+-- per platform (debug: full symbols, no optimization; release: optimized,
+-- symbols hidden/stripped) — declared explicitly below anyway so a
+-- project's build behavior doesn't depend on a reader knowing xmake's
+-- implicit mode-rule defaults.
+if is_mode("debug") then
+    set_symbols("debug")
+    set_optimize("none")
+else
+    set_symbols("hidden")
+    set_optimize("fastest")
+    set_strip("all")
+end
+
 target("{{.Name}}")
     set_kind("binary")
     add_includedirs("Include")
@@ -16,4 +31,32 @@ target("{{.Name}}")
     {{if eq .Mode "headless"}}add_packages("libsdl3")
     {{else}}add_packages("libsdl3", "libsdl3_image", "libsdl3_ttf")
     {{end}}add_deps("gameak-runtime", "gameak-core")
-    add_cxxflags("-Wno-interference-size")
+
+    -- -Wno-interference-size is GCC/Clang-only (see Third-Party/GameAK's
+    -- xmake.lua for why); MSVC doesn't recognize it, so it's scoped by
+    -- `tools` rather than applied unconditionally, matching the same fix
+    -- made there.
+    add_cxxflags("-Wno-interference-size", {tools = {"clang", "gcc"}})
+
+    -- Platform differences declared here, not left implicit in what
+    -- happens to work on whichever machine last built the project:
+    if is_plat("windows") then
+        -- MSVC's Unicode CRT entry points and /utf-8 source/exec charset
+        -- are opt-in, not the default — declared explicitly so a
+        -- non-ASCII asset path or log string behaves the same on Windows
+        -- as it already does on Linux/macOS.
+        add_cxflags("/utf-8", {tools = "cl"})
+        add_defines("_UNICODE", "UNICODE")
+    elseif is_plat("macosx") then
+        -- SDL3's own xmake package already links the Cocoa/IOKit/etc.
+        -- frameworks it needs; nothing project-specific to add here
+        -- today, but the branch exists so a future macOS-only need (e.g.
+        -- a bundle Info.plist step, see docs/platforms.md) has an
+        -- obvious place to go rather than an ad hoc top-level `if`.
+    elseif is_plat("linux") then
+        -- Nothing Linux-specific needed today — verified by this
+        -- project's own compile tests (tests/project_mode_test.go),
+        -- which build all three modes on Linux against the pinned
+        -- GameAK revision and real SDL3 packages. Branch kept for
+        -- symmetry with the platforms above.
+    end

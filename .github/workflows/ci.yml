@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  go:
+    name: Go build, vet, and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./... -count=1
+
+  # Scaffolds all three project modes (headless/2d/3d) and builds each
+  # with xmake against the pinned GameAK revision and real SDL3 packages
+  # — the exact sequence tests/project_mode_test.go's opt-in
+  # TestScaffoldModesCompile runs locally, extended here to the Windows
+  # and macOS rows docs/platforms.md's target matrix could not verify in
+  # the development environment that wrote it.
+  scaffold-build:
+    name: Scaffold + xmake build (${{ matrix.os }})
+    needs: go
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build seed CLI
+        run: go build -o seed-bin ./cmd/seed
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+
+      - name: Scaffold and build every project mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="$(pwd)/seed-bin"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            BIN="$(pwd)/seed-bin.exe"
+          fi
+          for mode in headless 2d 3d; do
+            work="$(mktemp -d)"
+            (
+              cd "$work"
+              "$BIN" new demo --mode "$mode"
+              cd demo
+              xmake build -y
+            )
+          done
