@@ -169,25 +169,50 @@ facilities, tooling, and generated glue that make them work as one SDK.
 
 ## Phase 4: Define the Seed runtime architecture
 
-- [ ] Define the runtime layers and the ownership boundary of each layer:
+All items below are specified in `docs/runtime-architecture.md`, grounded
+against the actual scaffold templates in `internal/project/templates/`
+(the only runtime code that exists today). Several sections document
+**known gaps** — concrete inconsistencies found in the current templates,
+not speculative — that Phase 7 must fix when the shared runtime is built;
+this phase is design/documentation only, so no template code was changed.
+
+- [x] Define the runtime layers and the ownership boundary of each layer:
   platform, application, simulation, presentation, assets, and game code.
-- [ ] Define the application lifecycle from process startup through bootstrap,
+  (`docs/runtime-architecture.md` §1)
+- [x] Define the application lifecycle from process startup through bootstrap,
   loading, main loop, suspension, shutdown, and failure recovery.
-- [ ] Define how SDL events enter Seed and become input, window, lifecycle, or
-  GameAK events and commands.
-- [ ] Define how simulation state becomes render and audio work without coupling
-  GameAK storage directly to SDL APIs.
-- [ ] Define fixed-step simulation, variable-rate presentation, interpolation,
-  frame pacing, and clock ownership.
-- [ ] Define thread ownership and synchronization rules for platform, simulation,
+  (`docs/runtime-architecture.md` §2)
+- [x] Define how SDL events enter Seed and become input, window, lifecycle, or
+  GameAK events and commands. (`docs/runtime-architecture.md` §3 — found and
+  documented that `main.cpp.tmpl`'s event loop never reaches GameAK today)
+- [x] Define how simulation state becomes render and audio work without coupling
+  GameAK storage directly to SDL APIs. (`docs/runtime-architecture.md` §4 —
+  found and documented that the 3D template's renderer reads
+  `rt.get_block`/field offsets directly today, the exact coupling this item
+  warns against)
+- [x] Define fixed-step simulation, variable-rate presentation, interpolation,
+  frame pacing, and clock ownership. (`docs/runtime-architecture.md` §5 —
+  found and documented a real bug: the 3D template configures a fixed
+  timestep but ticks with variable dt anyway, while the 2D template ticks
+  with a constant dt regardless of real elapsed time)
+- [x] Define thread ownership and synchronization rules for platform, simulation,
   rendering, audio, asset loading, and background work.
-- [ ] Define service ownership and dependency injection through `Seed::Context`.
-- [ ] Define capability-based APIs so headless and platform-limited targets can
-  omit unavailable facilities cleanly.
-- [ ] Define error propagation, logging, crash context, and orderly shutdown
-  across all runtime layers.
-- [ ] Keep the headless/server lifecycle a first-class configuration rather than
-  a special case of the graphical client.
+  (`docs/runtime-architecture.md` §6 — deliberately conservative
+  single-main-thread decision for the first milestone, background work
+  limited to asset loading via a job/result queue)
+- [x] Define service ownership and dependency injection through `Seed::Context`.
+  (`docs/runtime-architecture.md` §7 — found that `Context` today is only an
+  SDL_Init/Quit RAII guard with no services; decided it becomes the
+  composition root with explicit per-consumer injection, not a service
+  locator)
+- [x] Define capability-based APIs so headless and platform-limited targets can
+  omit unavailable facilities cleanly. (`docs/runtime-architecture.md` §8)
+- [x] Define error propagation, logging, crash context, and orderly shutdown
+  across all runtime layers. (`docs/runtime-architecture.md` §9)
+- [x] Keep the headless/server lifecycle a first-class configuration rather than
+  a special case of the graphical client. (`docs/runtime-architecture.md`
+  §10 — a third `--mode headless` alongside `2d`/`3d`, sharing one lifecycle
+  state machine rather than forking the codebase)
 
 ## Phase 5: Integrate the GameAK simulation layer
 
