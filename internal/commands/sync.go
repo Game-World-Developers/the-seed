@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"Game-Developers-World/seed/internal/backend/gameak"
 	"Game-Developers-World/seed/internal/generators"
@@ -52,6 +53,7 @@ func checkGameAKBackend() error {
 }
 
 var checkSync bool
+var dryRunSync bool
 
 var syncCmd = &cobra.Command{
 	Use:   "sync",
@@ -69,11 +71,42 @@ This processes every .yaml file in:
 
 It also updates registration calls in Src/Game/bootstrap.cpp.
 
-Use --check to show sync status without generating files.`,
+Use --check to show sync status without generating files.
+Use --dry-run to preview exactly what would change (create/update/
+unchanged, with a diff for updates) without writing anything.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := requireSeedProject(); err != nil {
 			return err
+		}
+		if dryRunSync {
+			if err := checkGameAKBackend(); err != nil {
+				return err
+			}
+			changes, err := generators.SyncPlan()
+			if err != nil {
+				return err
+			}
+			if len(changes) == 0 {
+				fmt.Println("No models found.")
+				return nil
+			}
+			create, update, unchanged := 0, 0, 0
+			for _, c := range changes {
+				switch c.Action {
+				case generators.ActionCreate:
+					fmt.Printf("  %11s  %s\n", "create", c.Path)
+					create++
+				case generators.ActionUpdate:
+					fmt.Printf("  %11s  %s\n", "update", c.Path)
+					fmt.Print(indentDiff(c.Diff))
+					update++
+				case generators.ActionUnchanged:
+					unchanged++
+				}
+			}
+			fmt.Printf("\n%d to create, %d to update, %d unchanged. No files were written (--dry-run).\n", create, update, unchanged)
+			return nil
 		}
 		if checkSync {
 			results, err := generators.CheckSync()
@@ -104,7 +137,21 @@ Use --check to show sync status without generating files.`,
 	},
 }
 
+func indentDiff(diff string) string {
+	if diff == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimRight(diff, "\n"), "\n") {
+		b.WriteString("      ")
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func init() {
 	syncCmd.Flags().BoolVarP(&checkSync, "check", "c", false, "Check sync status without generating files")
+	syncCmd.Flags().BoolVar(&dryRunSync, "dry-run", false, "Preview changes without writing any files")
 	rootCmd.AddCommand(syncCmd)
 }

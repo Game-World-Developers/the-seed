@@ -686,14 +686,42 @@ for help-text or Go-template correctness.
 
 ## Phase 10: Safe generation and extension points
 
-- [ ] Generate files atomically so template failures cannot leave partial output.
-- [ ] Distinguish fully generated files from user-owned files.
-- [ ] Preserve manual system implementations across regeneration.
-- [ ] Define stable hooks for custom C++ behavior and backend-specific overrides.
-- [ ] Detect stale and orphaned generated files without deleting user files.
-- [ ] Add a dry-run/diff mode before changing generated output.
-- [ ] Make generation reproducible across machines and repeated runs.
-- [ ] Define generated-file headers and provenance metadata.
+Full detail in `docs/generation-safety.md`. A real bug was found and
+fixed while implementing this: comparing an unformatted freshly-rendered
+buffer against an already-clang-formatted on-disk file would have made
+both the "skip an identical write" optimization and the dry-run diff see
+spurious formatting-only differences on every sync — fixed by formatting
+in memory (`formatBuffer`) before any comparison, not the file after
+writing.
+
+- [x] Generate files atomically so template failures cannot leave partial output.
+  (§1 — temp file + rename, and rendering happens into a buffer before any
+  file is touched at all, so a template error never reaches the filesystem)
+- [x] Distinguish fully generated files from user-owned files.
+  (§2 — a provenance header is the marker itself, no separate manifest to
+  cross-reference)
+- [x] Preserve manual system implementations across regeneration.
+  (§3 — formalized as `writeOnceSink`; was already true before this pass,
+  now verified by a real hand-edit-then-resync test)
+- [x] Define stable hooks for custom C++ behavior and backend-specific overrides.
+  (§4 — no new mechanism needed: System `.cpp` files, Cardinal's named
+  guard/action extension points, and `bootstrap.cpp`'s `@seed:begin/end`
+  blocks, confirmed and documented together as "the hooks")
+- [x] Detect stale and orphaned generated files without deleting user files.
+  (§5 — already true, confirmed by grepping `internal/commands/doctor.go`
+  for any `os.Remove`/`os.RemoveAll`: none exist, it's read-only reporting)
+- [x] Add a dry-run/diff mode before changing generated output.
+  (§6 — `seed sync --dry-run`, sharing the exact render pipeline `Sync`
+  uses via a `writeSink` swap, not a separate approximation. **Known gap:**
+  doesn't yet preview `bootstrap.cpp` registration-block changes, stated
+  in the doc rather than silently omitted)
+- [x] Make generation reproducible across machines and repeated runs.
+  (§7 — verified empirically: two full resyncs of a domain produce
+  byte-identical output, checked via sha256sum, not just argued from
+  reading the code)
+- [x] Define generated-file headers and provenance metadata.
+  (§8 — the exact source YAML path + tool version, no timestamp since
+  that would break §7)
 
 ## Phase 11: CLI and project hardening
 

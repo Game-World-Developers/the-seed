@@ -257,6 +257,33 @@ func TestCommandsBinary(t *testing.T) {
 		}
 	})
 
+	t.Run("sync --dry-run previews changes without writing anything", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "dry-run-project")
+		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Component"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+		comp := "type: component\nname: Position\nnamespace: Core\nfields:\n  - name: x\n    type: float\n"
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Component", "Position.yaml"), []byte(comp), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binPath, "sync", "--dry-run")
+		cmd.Dir = projDir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("sync --dry-run failed: %v\n%s", err, out)
+		}
+		if !contains(string(out), "create") || !contains(string(out), "1 to create") {
+			t.Fatalf("expected a create summary, got: %s", out)
+		}
+		if _, statErr := os.Stat(filepath.Join(projDir, "Include")); !os.IsNotExist(statErr) {
+			t.Fatal("expected sync --dry-run to write no files")
+		}
+	})
+
 	t.Run("package builds a manifest+zip bundle from declared assets", func(t *testing.T) {
 		projDir := filepath.Join(tmpDir, "package-project")
 		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Asset"), 0755); err != nil {

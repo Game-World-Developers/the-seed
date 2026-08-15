@@ -1,11 +1,12 @@
 package generators
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -117,20 +118,38 @@ func CreateModel(compType, name string) error {
 // see docs/semantics.md's Phase 2 decisions for why silent partial success
 // was replaced with a hard failure here.
 func Sync() error {
+	_, err := sync(diskSink{}, false)
+	return err
+}
+
+// SyncPlan runs the exact same compile-and-render pipeline as Sync but
+// writes nothing: every render call goes through dryRunSink, which
+// compares against what's already on disk and records a FileChange
+// instead of touching the filesystem. This is "seed sync --dry-run" —
+// a real preview of what Sync would do, not a separate, divergent
+// implementation that only approximates it.
+func SyncPlan() ([]FileChange, error) {
+	var changes []FileChange
+	_, err := sync(dryRunSink{changes: &changes}, true)
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Path < changes[j].Path })
+	return changes, err
+}
+
+func sync(sink writeSink, quiet bool) (map[string]int, error) {
 	compiled, err := Compile()
 	if err != nil {
-		return fmt.Errorf("compiling models: %w", err)
+		return nil, fmt.Errorf("compiling models: %w", err)
 	}
 	for _, d := range compiled.Diagnostics {
 		fmt.Fprintf(os.Stderr, "  %s\n", d)
 	}
 	if compiled.HasErrors() {
-		return fmt.Errorf("sync aborted: %d semantic error(s) found", len(compiled.Errors()))
+		return nil, fmt.Errorf("sync aborted: %d semantic error(s) found", len(compiled.Errors()))
 	}
 
 	models, err := scanAllModels()
 	if err != nil {
-		return fmt.Errorf("scanning models: %w", err)
+		return nil, fmt.Errorf("scanning models: %w", err)
 	}
 
 	// Build model registry for namespace resolution
@@ -153,13 +172,13 @@ func Sync() error {
 			continue
 		}
 		if t == "block" {
-			n, err := syncBlocks(entries, reg)
+			n, err := syncBlocks(entries, reg, sink, quiet)
 			if err != nil {
 				allErrs = append(allErrs, err)
 			}
 			counts[t] = n
 		} else {
-			n, err := syncEntries(t, entries, reg)
+			n, err := syncEntries(t, entries, reg, sink, quiet)
 			if err != nil {
 				allErrs = append(allErrs, err)
 			}
@@ -167,19 +186,27 @@ func Sync() error {
 		}
 	}
 
-	fmt.Printf("Synced %d components, %d traits, %d entities, %d archetypes, %d state_machines, %d events, %d assets, %d systems, %d blocks.\n",
-		counts["component"], counts["trait"], counts["entity"],
-		counts["archetype"], counts["state_machine"], counts["event"], counts["asset"], counts["system"],
-		counts["block"])
+	if !quiet {
+		fmt.Printf("Synced %d components, %d traits, %d entities, %d archetypes, %d state_machines, %d events, %d assets, %d systems, %d blocks.\n",
+			counts["component"], counts["trait"], counts["entity"],
+			counts["archetype"], counts["state_machine"], counts["event"], counts["asset"], counts["system"],
+			counts["block"])
 
-	if err := injectBootstrap(counts); err != nil {
-		fmt.Fprintf(os.Stderr, "  Error updating bootstrap: %v\n", err)
+		if err := injectBootstrap(counts); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error updating bootstrap: %v\n", err)
+		}
 	}
 
-	return errors.Join(allErrs...)
+	return counts, errors.Join(allErrs...)
 }
 
-func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry) (int, error) {
+func printAction(quiet bool, action, path string) {
+	if !quiet {
+		fmt.Printf("  %11s  %s\n", action, path)
+	}
+}
+
+func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry, sink writeSink, quiet bool) (int, error) {
 	tplContent, err := templates.Load(compType)
 	if err != nil {
 		return 0, fmt.Errorf("loading template: %w", err)
@@ -207,7 +234,7 @@ func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry) (int
 		}
 
 		if model.HasParts() {
-			n, err := syncParts(compType, model, entry.Name, entry.Namespace, tpl)
+			n, err := syncParts(compType, model, entry.Name, entry.Namespace, tpl, entry.Path, sink, quiet)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  Error syncing parts for %s: %v\n", entry.Name, err)
 			}
@@ -217,40 +244,25 @@ func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry) (int
 			if compType == "system" && model.HasParts() {
 				outDir = filepath.Join(outDir, entry.Name)
 			}
-			if err := os.MkdirAll(outDir, 0755); err != nil {
-				fmt.Fprintf(os.Stderr, "  Error creating directory %s: %v\n", outDir, err)
-				continue
-			}
 
 			outputPath := filepath.Join(outDir, entry.Name+".hpp")
-			f, err := os.Create(outputPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "  Error creating %s: %v\n", outputPath, err)
-				continue
-			}
 
-			if err := tpl.Execute(f, model); err != nil {
-				f.Close()
+			var buf bytes.Buffer
+			if err := tpl.Execute(&buf, model); err != nil {
 				fmt.Fprintf(os.Stderr, "  Error rendering %s: %v\n", outputPath, err)
 				continue
 			}
-			f.Close()
 
-			if err := formatCode(outputPath); err != nil {
-				fmt.Fprintf(os.Stderr, "  Warning: could not format %s: %v\n", outputPath, err)
+			out := prependHeader(generatedFileHeader(entry.Path), formatBuffer(buf.Bytes()))
+			if err := sink.write(outputPath, out, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "  Error writing %s: %v\n", outputPath, err)
+				continue
 			}
-			fmt.Printf("  %11s  %s\n", "create", outputPath)
+			printAction(quiet, "create", outputPath)
 
 			if compType == "system" {
-				if err := writeCpp(compType, model, entry.Name, ""); err != nil {
+				if err := writeCpp(compType, model, entry.Name, "", entry.Path, sink, quiet); err != nil {
 					fmt.Fprintf(os.Stderr, "  Error generating .cpp for %s: %v\n", entry.Name, err)
-				} else {
-					cppDir := filepath.Join(".", "Src", "Game")
-					if model.HasParts() {
-						cppDir = filepath.Join(cppDir, entry.Name)
-					}
-					cppPath := filepath.Join(cppDir, entry.Name+".cpp")
-					fmt.Printf("  %11s  %s\n", "create", cppPath)
 				}
 			}
 
@@ -261,7 +273,7 @@ func syncEntries(compType string, entries []ModelEntry, reg *ModelRegistry) (int
 	return count, nil
 }
 
-func syncBlocks(entries []ModelEntry, reg *ModelRegistry) (int, error) {
+func syncBlocks(entries []ModelEntry, reg *ModelRegistry, sink writeSink, quiet bool) (int, error) {
 	if len(entries) == 0 {
 		return 0, nil
 	}
@@ -387,63 +399,47 @@ func syncBlocks(entries []ModelEntry, reg *ModelRegistry) (int, error) {
 
 	// Write output header
 	outDir := filepath.Join(".", "Include", ns)
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		return 0, fmt.Errorf("creating output directory: %w", err)
-	}
-
 	outputPath := filepath.Join(outDir, entryName+".hpp")
-	f, err := os.Create(outputPath)
-	if err != nil {
-		return 0, fmt.Errorf("creating %s: %w", outputPath, err)
-	}
-	defer f.Close()
 
-	if err := tpl.Execute(f, data); err != nil {
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, data); err != nil {
 		return 0, fmt.Errorf("rendering %s: %w", outputPath, err)
 	}
 
-	if err := formatCode(outputPath); err != nil {
-		fmt.Fprintf(os.Stderr, "  Warning: could not format %s: %v\n", outputPath, err)
+	out := prependHeader(generatedFileHeader(filepath.Join(".", "Models", TypeDir["block"], "*.yaml")), formatBuffer(buf.Bytes()))
+	if err := sink.write(outputPath, out, 0644); err != nil {
+		return 0, fmt.Errorf("writing %s: %w", outputPath, err)
 	}
-	fmt.Printf("  %11s  %s\n", "create", outputPath)
+	printAction(quiet, "create", outputPath)
 
 	return len(blockModels), nil
 }
 
-func syncParts(compType string, model Model, parentName, parentNS string, tpl *template.Template) (int, error) {
+func syncParts(compType string, model Model, parentName, parentNS string, tpl *template.Template, sourcePath string, sink writeSink, quiet bool) (int, error) {
 	baseDir := filepath.Join(".", "Include", parentNS, parentName)
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
-		return 0, fmt.Errorf("creating parent dir: %w", err)
-	}
 
 	parts, extras := model.ExtractParts()
 	count := 0
 	for i, partName := range parts {
 		outputPath := filepath.Join(baseDir, partName+".hpp")
-		f, err := os.Create(outputPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  Error creating %s: %v\n", outputPath, err)
-			continue
-		}
+
+		var buf bytes.Buffer
 		data := partData(model, partName, extras[i])
-		if err := tpl.Execute(f, data); err != nil {
-			f.Close()
+		if err := tpl.Execute(&buf, data); err != nil {
 			fmt.Fprintf(os.Stderr, "  Error rendering %s: %v\n", outputPath, err)
 			continue
 		}
-		f.Close()
 
-		if err := formatCode(outputPath); err != nil {
-			fmt.Fprintf(os.Stderr, "  Warning: could not format %s: %v\n", outputPath, err)
+		out := prependHeader(generatedFileHeader(sourcePath), formatBuffer(buf.Bytes()))
+		if err := sink.write(outputPath, out, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "  Error writing %s: %v\n", outputPath, err)
+			continue
 		}
-		fmt.Printf("  %11s  %s\n", "create", outputPath)
+		printAction(quiet, "create", outputPath)
 
 		if compType == "system" {
-			if err := writeCpp(compType, model, partName, parentName); err != nil {
+			if err := writeCpp(compType, model, partName, parentName, sourcePath, sink, quiet); err != nil {
 				fmt.Fprintf(os.Stderr, "  Error generating .cpp for %s: %v\n", partName, err)
-			} else {
-				cppPath := filepath.Join(".", "Src", "Game", parentName, partName+".cpp")
-				fmt.Printf("  %11s  %s\n", "create", cppPath)
 			}
 		}
 
@@ -452,7 +448,12 @@ func syncParts(compType string, model Model, parentName, parentNS string, tpl *t
 	return count, nil
 }
 
-func writeCpp(compType string, model Model, name string, parent string) error {
+// writeCpp creates a System's hand-implemented .cpp skeleton — a
+// user-owned file (docs/generation-safety.md): writeOnceSink refuses to
+// touch it if it already exists, so a game author's implementation
+// survives every subsequent "seed sync" no matter how many times the
+// System's .hpp is regenerated alongside it.
+func writeCpp(compType string, model Model, name string, parent string, sourcePath string, sink writeSink, quiet bool) error {
 	var tplContent string
 	var err error
 	if parent != "" {
@@ -473,28 +474,32 @@ func writeCpp(compType string, model Model, name string, parent string) error {
 	} else if compType == "system" && model.HasParts() {
 		srcDir = filepath.Join(srcDir, name)
 	}
-	if err := os.MkdirAll(srcDir, 0755); err != nil {
-		return err
-	}
 	outputPath := filepath.Join(srcDir, name+".cpp")
-	if _, err := os.Stat(outputPath); err == nil {
-		return nil
-	}
 
 	data := any(model)
 	if parent != "" {
 		data = partData(model, name, extractPartExtras(model, name))
 	}
 
-	f, err := os.Create(outputPath)
-	if err != nil {
+	_, statErr := os.Stat(outputPath)
+	preexisted := statErr == nil
+
+	var buf bytes.Buffer
+	if err := tpl.Execute(&buf, data); err != nil {
 		return err
 	}
-	defer f.Close()
-	if err := tpl.Execute(f, data); err != nil {
+
+	out := prependHeader(userOwnedFileHeader(sourcePath), formatBuffer(buf.Bytes()))
+	once := writeOnceSink{inner: sink}
+	if err := once.write(outputPath, out, 0644); err != nil {
 		return err
 	}
-	return formatCode(outputPath)
+	if preexisted {
+		printAction(quiet, "identical", outputPath)
+	} else {
+		printAction(quiet, "create", outputPath)
+	}
+	return nil
 }
 
 func partData(m Model, partName string, extras map[string]any) map[string]any {
@@ -649,14 +654,6 @@ func replaceSeedBlock(content, blockName string, headers, calls []string) string
 	}
 	sb.WriteString(content[beginBlock+endBlock:])
 	return sb.String()
-}
-
-func formatCode(path string) error {
-	if _, err := exec.LookPath("clang-format"); err != nil {
-		return nil
-	}
-	cmd := exec.Command("clang-format", "-i", path)
-	return cmd.Run()
 }
 
 func DeleteModel(compType, name string) error {
