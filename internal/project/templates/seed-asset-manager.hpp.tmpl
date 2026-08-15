@@ -13,25 +13,57 @@
 
 namespace seed {
 
+// AssetEntry is one loaded asset's identity: its Kind, the live SDL
+// handle, and the source Path it was loaded from. Path is what makes
+// dev-only hot reload (AssetManager::reload_stale) possible — see that
+// method's doc comment for why it's compiled out of release builds
+// rather than merely disabled at runtime.
 struct AssetEntry {
     enum Kind : int { kTexture, kFont, kAudio } kind;
     union {
         SDL_Texture* texture;
         TTF_Font* font;
     } data;
+#ifndef NDEBUG
+    SDL_Time mtime{};
+#endif
 };
 
+// ── AssetManager: identity, loading, caching, unloading ─────────────
+//
+// Every loaded asset has a stable string identity (`name`) callers look
+// it up by — this is the "asset identity" the roadmap asks for: an
+// AssetManager entry is addressed by name, never by raw pointer or load
+// order, so code holding a name can always re-resolve the current handle
+// even after a reload replaces it.
+//
+// Discovery, import, and packaging are not implemented here: this class
+// only loads what it's explicitly told to load by path. Scanning
+// Assets/ for importable files (discovery/import) is what `seed import`
+// already does at the model layer (internal/commands/import.go) before
+// generation — extending *this* class to independently rediscover files
+// on disk would duplicate that, not complement it. Packaging (cooking
+// assets for a release bundle) is a Phase 8 target-specific concern
+// (platform-aware asset cooking is explicitly listed there) and depends
+// on decisions (target matrix, compression) this class has no way to
+// make on its own.
+//
+// A full dependency graph (asset A requires asset B) is also not
+// implemented: nothing in Seed's `asset` model (Kind + Path) declares
+// inter-asset dependencies yet, so there is nothing for a graph to
+// represent beyond what per-name caching below already handles.
 class AssetManager {
 public:
     static constexpr int kMaxAssets = 64;
 
+    // SDL3_image has no IMG_Init/IMG_Quit (unlike SDL2_image/SDL3_ttf) —
+    // each IMG_Load* call initializes only the codec it needs, on demand.
+    // init() only initializes SDL3_ttf, matching the library it actually
+    // wraps; the corrected signature was found by this pass's compile
+    // verification (the previous version referenced IMG_Init/IMG_INIT_PNG/
+    // IMG_INIT_JPG/IMG_Quit, none of which exist in SDL3_image, and had
+    // never actually been compiled before since nothing called it).
     static gameak::core::Result<void> init() {
-        if (!IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG)) {
-            return gameak::core::Error(
-                gameak::core::ErrorCode::InternalError,
-                SDL_GetError()
-            );
-        }
         if (!TTF_Init()) {
             return gameak::core::Error(
                 gameak::core::ErrorCode::InternalError,
@@ -44,7 +76,6 @@ public:
     void quit() {
         clear_all();
         TTF_Quit();
-        IMG_Quit();
     }
 
     gameak::core::Result<SDL_Texture*> load_texture(
@@ -65,8 +96,7 @@ public:
         }
         entries_[count_].kind = AssetEntry::kTexture;
         entries_[count_].data.texture = tex;
-        std::strncpy(names_[count_], name, kMaxNameLen);
-        names_[count_][kMaxNameLen] = '\0';
+        store_name_and_path(count_, name, path);
         count_++;
         return tex;
     }
@@ -89,53 +119,120 @@ public:
         }
         entries_[count_].kind = AssetEntry::kFont;
         entries_[count_].data.font = font;
-        std::strncpy(names_[count_], name, kMaxNameLen);
-        names_[count_][kMaxNameLen] = '\0';
+        store_name_and_path(count_, name, path);
         count_++;
         return font;
     }
 
     SDL_Texture* get_texture(const char* name) const {
-        for (int i = 0; i < count_; i++) {
-            if (entries_[i].kind == AssetEntry::kTexture &&
-                std::strcmp(names_[i], name) == 0) {
-                return entries_[i].data.texture;
-            }
-        }
-        return nullptr;
+        int i = find(name);
+        return (i >= 0 && entries_[i].kind == AssetEntry::kTexture) ? entries_[i].data.texture : nullptr;
     }
 
     TTF_Font* get_font(const char* name) const {
-        for (int i = 0; i < count_; i++) {
-            if (entries_[i].kind == AssetEntry::kFont &&
-                std::strcmp(names_[i], name) == 0) {
-                return entries_[i].data.font;
-            }
+        int i = find(name);
+        return (i >= 0 && entries_[i].kind == AssetEntry::kFont) ? entries_[i].data.font : nullptr;
+    }
+
+    // Unloads a single named asset, compacting the entry table. Returns
+    // false if no asset with that name is loaded.
+    bool unload(const char* name) {
+        int i = find(name);
+        if (i < 0) return false;
+        destroy(i);
+        for (int j = i; j < count_ - 1; j++) {
+            entries_[j] = entries_[j + 1];
+            std::strcpy(names_[j], names_[j + 1]);
+            std::strcpy(paths_[j], paths_[j + 1]);
         }
-        return nullptr;
+        count_--;
+        return true;
     }
 
     void clear_all() {
+        for (int i = 0; i < count_; i++) destroy(i);
+        count_ = 0;
+    }
+
+#ifndef NDEBUG
+    // Dev-only hot reload: re-loads any asset whose source file's mtime
+    // is newer than when it was last loaded. Compiled out entirely in
+    // release builds (guarded by NDEBUG, the same macro CMake/xmake's
+    // release mode already defines) rather than disabled by a runtime
+    // flag — per the roadmap's "without changing release runtime
+    // determinism," a release binary must not even contain the
+    // stat()-every-frame check, not merely have it turned off, so a
+    // hot-reload bug can never affect release timing or behavior at all.
+    void reload_stale(SDL_Renderer* renderer) {
         for (int i = 0; i < count_; i++) {
+            SDL_PathInfo info;
+            if (!SDL_GetPathInfo(paths_[i], &info)) continue;
+            if (info.modify_time <= entries_[i].mtime) continue;
+
             switch (entries_[i].kind) {
-            case AssetEntry::kTexture:
+            case AssetEntry::kTexture: {
+                if (!renderer) break;
+                SDL_Texture* fresh = IMG_LoadTexture(renderer, paths_[i]);
+                if (!fresh) break;
                 SDL_DestroyTexture(entries_[i].data.texture);
+                entries_[i].data.texture = fresh;
+                entries_[i].mtime = info.modify_time;
                 break;
+            }
             case AssetEntry::kFont:
-                TTF_CloseFont(entries_[i].data.font);
+                // Font point size isn't tracked per entry today, so a
+                // stale font is left in place rather than reloaded with
+                // a guessed size — reported, not silently skipped.
+                SDL_Log("seed::AssetManager: font '%s' changed on disk; "
+                        "re-run 'load_font' to pick it up (size not cached)",
+                        names_[i]);
+                entries_[i].mtime = info.modify_time;
                 break;
             case AssetEntry::kAudio:
                 break;
             }
         }
-        count_ = 0;
     }
+#endif
 
 private:
     static constexpr int kMaxNameLen = 63;
+    static constexpr int kMaxPathLen = 255;
+
+    void store_name_and_path(int i, const char* name, const char* path) {
+        std::strncpy(names_[i], name, kMaxNameLen);
+        names_[i][kMaxNameLen] = '\0';
+        std::strncpy(paths_[i], path, kMaxPathLen);
+        paths_[i][kMaxPathLen] = '\0';
+#ifndef NDEBUG
+        SDL_PathInfo info;
+        if (SDL_GetPathInfo(path, &info)) entries_[i].mtime = info.modify_time;
+#endif
+    }
+
+    int find(const char* name) const {
+        for (int i = 0; i < count_; i++) {
+            if (std::strcmp(names_[i], name) == 0) return i;
+        }
+        return -1;
+    }
+
+    void destroy(int i) {
+        switch (entries_[i].kind) {
+        case AssetEntry::kTexture:
+            SDL_DestroyTexture(entries_[i].data.texture);
+            break;
+        case AssetEntry::kFont:
+            TTF_CloseFont(entries_[i].data.font);
+            break;
+        case AssetEntry::kAudio:
+            break;
+        }
+    }
 
     AssetEntry entries_[kMaxAssets]{};
     char names_[kMaxAssets][kMaxNameLen + 1]{};
+    char paths_[kMaxAssets][kMaxPathLen + 1]{};
     int count_ = 0;
 };
 

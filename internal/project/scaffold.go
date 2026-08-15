@@ -241,6 +241,26 @@ func writeProjectFiles(name, mode, root, gameakDir string, skipExisting bool) er
 		return err
 	}
 
+	if err := renderStatic("seed-scene.hpp", filepath.Join(root, "Include", "Seed", "scene.hpp")); err != nil {
+		return err
+	}
+
+	if err := renderStatic("seed-platform-services.hpp", filepath.Join(root, "Include", "Seed", "platform_services.hpp")); err != nil {
+		return err
+	}
+
+	// Headless targets have no window to read keyboard/mouse/gamepad
+	// events from, so input mapping is scaffolded only for the graphical
+	// modes — see docs/runtime-architecture.md §8/§10.
+	if mode != "headless" {
+		if err := renderStatic("seed-input.hpp", filepath.Join(root, "Include", "Seed", "input.hpp")); err != nil {
+			return err
+		}
+		if err := renderStatic("seed-camera.hpp", filepath.Join(root, "Include", "Seed", "camera.hpp")); err != nil {
+			return err
+		}
+	}
+
 	// Headless targets have no window/renderer to feed assets to, so the
 	// image/font/asset-manager stack (and the SDL_image/SDL_ttf packages
 	// it needs) is skipped entirely rather than scaffolded unused — see

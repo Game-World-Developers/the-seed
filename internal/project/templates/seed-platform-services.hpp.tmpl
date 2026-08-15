@@ -1,0 +1,194 @@
+#pragma once
+
+#include <GameAk/Core/result.h>
+#include <SDL3/SDL.h>
+
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace seed {
+
+// ── Save data / preferences: a capability, not a hard requirement ────
+//
+// SaveData wraps SDL_GetPrefPath (the portable, per-platform-correct
+// writable directory SDL already knows how to find) plus SDL_LoadFile/
+// SDL_SaveFile for raw byte save blobs, and a flat key=value Preferences
+// file alongside it. Both fail gracefully (a Result, not an abort) since
+// a fresh install has no prior save/prefs file — that's an expected,
+// not-fatal state, matching docs/runtime-architecture.md §8's capability
+// contract: a target without a writable directory (some restricted
+// sandboxes) simply can't use this facility, and callers see that as a
+// normal Result failure rather than a crash.
+class SaveData {
+public:
+    static gameak::core::Result<SaveData> open(const char* org, const char* app) {
+        char* path = SDL_GetPrefPath(org, app);
+        if (!path) {
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
+        }
+        SaveData sd(path);
+        SDL_free(path);
+        return sd;
+    }
+
+    [[nodiscard]] std::string path_to(const char* filename) const {
+        return dir_ + filename;
+    }
+
+    gameak::core::Result<std::vector<Uint8>> load(const char* filename) const {
+        size_t size = 0;
+        void* data = SDL_LoadFile(path_to(filename).c_str(), &size);
+        if (!data) {
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
+        }
+        std::vector<Uint8> out(static_cast<Uint8*>(data), static_cast<Uint8*>(data) + size);
+        SDL_free(data);
+        return out;
+    }
+
+    gameak::core::Result<void> save(const char* filename, const void* data, size_t size) const {
+        if (!SDL_SaveFile(path_to(filename).c_str(), data, size)) {
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
+        }
+        return {};
+    }
+
+private:
+    explicit SaveData(std::string dir) : dir_(std::move(dir)) {}
+    std::string dir_;
+};
+
+// Preferences: a flat "key=value\n" text file under SaveData's directory
+// — deliberately not a general serialization format. Games needing
+// structured preference data can already do that through SaveData's raw
+// byte load/save; Preferences exists for the common "a handful of named
+// settings" case without pulling in a parser for anything richer.
+class Preferences {
+public:
+    static Preferences load(const SaveData& save, const char* filename = "prefs.txt") {
+        Preferences p(save, filename);
+        auto res = save.load(filename);
+        if (!res) return p;
+        std::string text(res.value().begin(), res.value().end());
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t eol = text.find('\n', pos);
+            if (eol == std::string::npos) eol = text.size();
+            size_t eq = text.find('=', pos);
+            if (eq != std::string::npos && eq < eol) {
+                p.values_[text.substr(pos, eq - pos)] = text.substr(eq + 1, eol - eq - 1);
+            }
+            pos = eol + 1;
+        }
+        return p;
+    }
+
+    void set(const std::string& key, const std::string& value) { values_[key] = value; }
+
+    [[nodiscard]] std::string get(const std::string& key, const std::string& fallback = "") const {
+        auto it = values_.find(key);
+        return it != values_.end() ? it->second : fallback;
+    }
+
+    gameak::core::Result<void> flush() const {
+        std::string text;
+        for (const auto& [k, v] : values_) {
+            text += k + "=" + v + "\n";
+        }
+        return save_.save(filename_.c_str(), text.data(), text.size());
+    }
+
+private:
+    Preferences(const SaveData& save, std::string filename)
+        : save_(save), filename_(std::move(filename)) {}
+
+    const SaveData& save_;
+    std::string filename_;
+    std::unordered_map<std::string, std::string> values_;
+};
+
+// ── Localization: preferred-locale detection + a flat string table ───
+//
+// Not a full ICU-style pluralization/formatting system — that's a much
+// larger dependency this scaffold doesn't vendor. `preferred_language`
+// uses SDL_GetPreferredLocales (a real OS-level query, not guessed from
+// environment variables by hand) to pick which flat key=value string
+// table to load via Localization::load, reusing the same trivial format
+// Preferences already established rather than inventing a second one.
+class Localization {
+public:
+    // Returns the user's preferred language code (e.g. "en", "pt"), or
+    // fallback if SDL has no locale information (some headless/sandboxed
+    // environments legitimately don't).
+    static std::string preferred_language(const char* fallback = "en") {
+        int count = 0;
+        SDL_Locale** locales = SDL_GetPreferredLocales(&count);
+        if (!locales || count == 0) return fallback;
+        std::string lang = locales[0]->language ? locales[0]->language : fallback;
+        SDL_free(locales);
+        return lang;
+    }
+
+    static gameak::core::Result<Localization> load(const char* path) {
+        size_t size = 0;
+        void* data = SDL_LoadFile(path, &size);
+        if (!data) {
+            return gameak::core::Error(gameak::core::ErrorCode::InternalError, SDL_GetError());
+        }
+        Localization loc;
+        std::string text(static_cast<char*>(data), size);
+        SDL_free(data);
+        size_t pos = 0;
+        while (pos < text.size()) {
+            size_t eol = text.find('\n', pos);
+            if (eol == std::string::npos) eol = text.size();
+            size_t eq = text.find('=', pos);
+            if (eq != std::string::npos && eq < eol) {
+                loc.strings_[text.substr(pos, eq - pos)] = text.substr(eq + 1, eol - eq - 1);
+            }
+            pos = eol + 1;
+        }
+        return loc;
+    }
+
+    [[nodiscard]] std::string tr(const std::string& key) const {
+        auto it = strings_.find(key);
+        return it != strings_.end() ? it->second : key;
+    }
+
+private:
+    std::unordered_map<std::string, std::string> strings_;
+};
+
+// ── Clipboard, URLs, and file dialogs: thin, direct SDL3 wrappers ────
+//
+// These are already portable, capability-gated (SDL no-ops or returns
+// false on a target that lacks the facility, e.g. clipboard on a
+// headless target) at the SDL level, so Seed doesn't need to reinvent
+// capability detection for them — just name them consistently with the
+// rest of this file.
+namespace platform {
+
+inline bool set_clipboard_text(const char* text) { return SDL_SetClipboardText(text); }
+
+inline std::string get_clipboard_text() {
+    char* text = SDL_GetClipboardText();
+    std::string out = text ? text : "";
+    SDL_free(text);
+    return out;
+}
+
+inline bool open_url(const char* url) { return SDL_OpenURL(url); }
+
+// Opens a native "open file" dialog. Asynchronous by SDL3's design (the
+// dialog runs out-of-process on some platforms) — callback receives the
+// chosen path(s), or nullptr on cancel/error.
+inline void show_open_file_dialog(SDL_DialogFileCallback callback, void* userdata,
+                                   SDL_Window* window = nullptr) {
+    SDL_ShowOpenFileDialog(callback, userdata, window, nullptr, 0, nullptr, false);
+}
+
+} // namespace platform
+
+} // namespace seed

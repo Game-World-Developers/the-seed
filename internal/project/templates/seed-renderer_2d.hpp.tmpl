@@ -61,6 +61,8 @@ public:
         SDL_RenderPresent(renderer_);
     }
 
+    [[nodiscard]] SDL_Renderer* get() const { return renderer_; }
+
 private:
     explicit Renderer2D(SDL_Renderer* ren)
         : renderer_(ren)

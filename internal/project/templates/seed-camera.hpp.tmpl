@@ -1,0 +1,38 @@
+#pragma once
+
+#include <SDL3/SDL.h>
+
+namespace seed {
+
+// ── Camera: the render lifecycle's camera stage ─────────────────────
+//
+// Camera2D is a CPU-side pan/zoom transform applied once per frame during
+// extraction (docs/runtime-architecture.md §4), before quads reach the
+// Renderer. It is deliberately not a GPU uniform/push-constant: neither
+// seed::Renderer2D (an SDL_Renderer wrapper) nor seed::Renderer3D's
+// current pipeline (a fixed, precompiled SPIR-V shader with no uniform
+// buffer input — see seed-shaders.hpp.tmpl) has anywhere to receive one
+// without a shader/pipeline rewrite, which is out of scope here since it
+// touches compiled shader bytecode this project doesn't build from source
+// (no GLSL source is checked in, only the compiled SPIR-V). Renderer3D
+// also only ever draws screen-space quads today, not 3D meshes with real
+// depth — so a true 3D perspective camera (view/projection matrices) has
+// nothing to project yet. This Camera2D is an honest fit for what both
+// renderers actually do: applying it is a CPU transform on the same
+// value structs draw_quad already takes.
+struct Camera2D {
+    float x = 0.0f;
+    float y = 0.0f;
+    float zoom = 1.0f;
+
+    [[nodiscard]] SDL_FRect apply(SDL_FRect world) const {
+        return SDL_FRect{
+            (world.x - x) * zoom,
+            (world.y - y) * zoom,
+            world.w * zoom,
+            world.h * zoom,
+        };
+    }
+};
+
+} // namespace seed

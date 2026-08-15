@@ -1,16 +1,23 @@
 #include <GameAk/Runtime/runtime.h>
 #include <SDL3/SDL.h>
 #include <Seed/context.hpp>
+#include <Seed/scene.hpp>
 #include "Game/bootstrap.hpp"
 #include <cstdio>
 {{if eq .Mode "3d"}}
 #include <Seed/renderer_3d.hpp>
+#include <Seed/input.hpp>
+#include <Seed/camera.hpp>
+#include <Seed/asset_manager.hpp>
 #include <Core/Position.hpp>
 #include <cmath>
 #include <vector>
 using Renderer = seed::Renderer3D;
 {{else if eq .Mode "2d"}}
 #include <Seed/renderer_2d.hpp>
+#include <Seed/input.hpp>
+#include <Seed/camera.hpp>
+#include <Seed/asset_manager.hpp>
 using Renderer = seed::Renderer2D;
 {{else}}
 #include <csignal>
@@ -56,7 +63,8 @@ static constexpr SDL_FColor kPalette[] = {
 // the render loop below consumes with no further GameAK calls.
 static std::vector<seed::QuadDesc> extract_render_list(
     gameak::runtime::Runtime<>& rt,
-    const std::vector<Orbiter>& orbiters)
+    const std::vector<Orbiter>& orbiters,
+    const seed::Camera2D& camera)
 {
     std::vector<seed::QuadDesc> out;
     out.reserve(orbiters.size());
@@ -65,7 +73,8 @@ static std::vector<seed::QuadDesc> extract_render_list(
         if (!block) continue;
         float sx = 400.f + block->field<float>(offsetof(Core::Position, x)) - 20.f;
         float sy = 300.f + block->field<float>(offsetof(Core::Position, y)) - 20.f;
-        out.push_back(seed::QuadDesc{sx, sy, 40.f, 40.f, o.color});
+        SDL_FRect world = camera.apply(SDL_FRect{sx, sy, 40.f, 40.f});
+        out.push_back(seed::QuadDesc{world.x, world.y, world.w, world.h, o.color});
     }
     return out;
 }
@@ -130,6 +139,41 @@ int main() {
     auto& renderer = ren_res.value();
     {{if eq .Mode "3d"}}seed::gRenderer = &renderer;{{end}}
 
+    // ── Assets, input, and a bus-scoped audio touchpoint ────────────────
+    // seed::AssetManager owns identity/caching/hot-reload for loaded
+    // assets (see seed-asset-manager.hpp.tmpl); this scaffold ships no
+    // bundled asset files, so nothing is loaded here — the lifecycle
+    // (init -> use -> quit) is still wired so a project only has to add
+    // load_texture/load_font calls, not plumbing.
+    if (auto res = seed::AssetManager::init(); !res) {
+        SDL_Log("Warning: AssetManager::init failed (continuing without asset loading): %s",
+                res.error().message().data());
+    }
+    seed::AssetManager assets;
+
+    if (auto* audio = ctx.audio()) {
+        audio->set_bus_gain(seed::Bus::Music, 0.8f);
+        audio->set_bus_gain(seed::Bus::SFX, 1.0f);
+    }
+
+    seed::ActionMap action_map;
+    action_map.bind_key(seed::Action::Pause, SDLK_ESCAPE);
+{{if eq .Mode "3d"}}
+    action_map.bind_key(seed::Action::MoveLeft, SDLK_A);
+    action_map.bind_key(seed::Action::MoveLeft, SDLK_LEFT);
+    action_map.bind_key(seed::Action::MoveRight, SDLK_D);
+    action_map.bind_key(seed::Action::MoveRight, SDLK_RIGHT);
+    action_map.bind_key(seed::Action::MoveUp, SDLK_W);
+    action_map.bind_key(seed::Action::MoveUp, SDLK_UP);
+    action_map.bind_key(seed::Action::MoveDown, SDLK_S);
+    action_map.bind_key(seed::Action::MoveDown, SDLK_DOWN);
+{{end}}
+    seed::InputTranslator input_translator(action_map);
+    seed::InputState input;
+
+    seed::Camera2D camera;
+    {{if eq .Mode "2d"}}(void)camera; // wired for extraction-based 2D content; this demo draws none{{end}}
+
     float refresh_rate = detect_refresh_rate();
     float fixed_dt = 1.0f / refresh_rate;
     if (fixed_dt < kMinDt) fixed_dt = kMinDt;
@@ -162,20 +206,30 @@ int main() {
         if (desc.name == "Position") { pos_type = tid; break; }
     }
 
-    // ── Create demo entities ───────────────────────────────────────────
+    // ── Scene: declarative spawn/despawn, entered explicitly ────────────
+    // The orbiter spawn loop is Spawn intent, not simulation storage
+    // (seed-scene.hpp.tmpl) — MainScene owns the callback, SceneManager
+    // performs the one explicit transition that runs it. A project adding
+    // a second Scene (e.g. a menu) transitions between them the same way,
+    // never by reaching into `orbiters`/`rt` directly from outside.
     std::vector<Orbiter> orbiters;
-    for (int i = 0; i < 10; i++) {
-        float ox = 100.f + (i % 5) * 150.f;
-        float oy = 80.f + (i / 5) * 160.f;
-        auto id_res = rt.create_block(pos_type);
-        if (!id_res) continue;
-        auto id = id_res.value();
-        rt.submit_command(gameak::runtime::Command::set_field<float>(
-            id, offsetof(Core::Position, x), ox));
-        rt.submit_command(gameak::runtime::Command::set_field<float>(
-            id, offsetof(Core::Position, y), oy));
-        orbiters.push_back({id, ox, oy, float(i) * 0.8f, kPalette[i]});
-    }
+    seed::Scene main_scene("MainScene");
+    main_scene.on_enter([&orbiters, pos_type](gameak::runtime::Runtime<>& scene_rt) {
+        for (int i = 0; i < 10; i++) {
+            float ox = 100.f + (i % 5) * 150.f;
+            float oy = 80.f + (i / 5) * 160.f;
+            auto id_res = scene_rt.create_block(pos_type);
+            if (!id_res) continue;
+            auto id = id_res.value();
+            scene_rt.submit_command(gameak::runtime::Command::set_field<float>(
+                id, offsetof(Core::Position, x), ox));
+            scene_rt.submit_command(gameak::runtime::Command::set_field<float>(
+                id, offsetof(Core::Position, y), oy));
+            orbiters.push_back({id, ox, oy, float(i) * 0.8f, kPalette[i]});
+        }
+    });
+    seed::SceneManager scenes;
+    scenes.transition_to(rt, main_scene);
     rt.tick(0);
 
     float speed      = 0.5f;
@@ -200,29 +254,16 @@ int main() {
         last = now;
         if (frame_dt > kMaxFrameDt) frame_dt = kMaxFrameDt;
 
-        // ── Event processing ─────────────────────────────────────────
+        // ── Event processing: classify into InputState, then handle
+        // lifecycle/window events directly (docs/runtime-architecture.md
+        // §3's bucketing — Input never decides window/lifecycle outcomes
+        // itself, it only records state; the Application layer below acts
+        // on it) ─────────────────────────────────────────────────────
+        input_translator.begin_frame(input);
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            input_translator.feed(event, input);
             switch (event.type) {
-            case SDL_EVENT_QUIT:
-                running = false;
-                break;
-{{if eq .Mode "3d"}}
-            case SDL_EVENT_KEY_DOWN:
-                switch (event.key.key) {
-                case SDLK_ESCAPE: running = false; break;
-                case SDLK_LEFT:
-                case SDLK_A: speed -= 0.1f; if (speed < 0.1f) speed = 0.1f; break;
-                case SDLK_RIGHT:
-                case SDLK_D: speed += 0.1f; if (speed > 3.f) speed = 3.f; break;
-                case SDLK_UP:
-                case SDLK_W: radius += 10.f; if (radius > 200.f) radius = 200.f; break;
-                case SDLK_DOWN:
-                case SDLK_S: radius -= 10.f; if (radius < 10.f) radius = 10.f; break;
-                default: break;
-                }
-                break;
-{{end}}
             case SDL_EVENT_GAMEPAD_ADDED:
                 if (gamepad_count < 8) {
                     gamepads[gamepad_count++] = SDL_OpenGamepad(event.gdevice.which);
@@ -242,10 +283,22 @@ int main() {
                 break;
             }
         }
+        if (input.quit_requested || input.pressed(seed::Action::Pause)) {
+            running = false;
+        }
 
 {{if eq .Mode "3d"}}
         // ── Game logic: controllers execute here ─────────────────────
         elapsed += frame_dt;
+
+        if (input.down(seed::Action::MoveLeft))  { speed -= 0.1f * frame_dt * 60.f; }
+        if (input.down(seed::Action::MoveRight)) { speed += 0.1f * frame_dt * 60.f; }
+        if (input.down(seed::Action::MoveUp))    { radius += 10.f * frame_dt * 60.f; }
+        if (input.down(seed::Action::MoveDown))  { radius -= 10.f * frame_dt * 60.f; }
+        if (speed < 0.1f) speed = 0.1f;
+        if (speed > 3.f) speed = 3.f;
+        if (radius > 200.f) radius = 200.f;
+        if (radius < 10.f) radius = 10.f;
 
         // Direct entity manipulation (for template demo; real games
         // should use controllers for all logic):
@@ -267,9 +320,18 @@ int main() {
             accumulator -= fixed_dt;
         }
 
+#ifndef NDEBUG
+        // Dev-only asset hot reload — compiled out of release builds
+        // entirely (see AssetManager::reload_stale's doc comment); a
+        // release binary's per-frame cost and behavior are unaffected by
+        // whether this call exists, satisfying "hot reload ... without
+        // changing release runtime determinism."
+        assets.reload_stale({{if eq .Mode "2d"}}renderer.get(){{else}}nullptr{{end}});
+#endif
+
 {{if eq .Mode "3d"}}
         // ── Extraction, then render (Renderer never touches rt) ───────
-        auto render_list = extract_render_list(rt, orbiters);
+        auto render_list = extract_render_list(rt, orbiters, camera);
         renderer.begin_frame({0.1f, 0.1f, 0.1f, 1.0f});
         for (const auto& qd : render_list) {
             renderer.draw_quad(qd);
@@ -319,5 +381,8 @@ int main() {
     }
 {{end}}
 
+{{if ne .Mode "headless"}}
+    assets.quit();
+{{end}}
     return 0;
 }

@@ -3,9 +3,17 @@
 #include <GameAk/Core/result.h>
 #include <SDL3/SDL.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace seed {
+
+// A named gain stage applied before samples reach the device — the
+// minimal, real form of "audio buses": Master/Music/SFX volumes that
+// compose (bus gain * master gain) without needing a full mixing graph,
+// which nothing in this scaffold's audio content yet justifies building.
+enum class Bus : uint32_t { Master, Music, SFX, Count };
 
 class Audio {
 public:
@@ -39,6 +47,7 @@ public:
     Audio(Audio&& other) noexcept
         : stream_(other.stream_)
     {
+        for (size_t i = 0; i < static_cast<size_t>(Bus::Count); i++) bus_gain_[i] = other.bus_gain_[i];
         other.stream_ = nullptr;
     }
 
@@ -46,14 +55,34 @@ public:
         if (this != &other) {
             if (stream_) SDL_CloseAudioDevice(SDL_GetAudioStreamDevice(stream_));
             stream_ = other.stream_;
+            for (size_t i = 0; i < static_cast<size_t>(Bus::Count); i++) bus_gain_[i] = other.bus_gain_[i];
             other.stream_ = nullptr;
         }
         return *this;
     }
 
-    bool enqueue(const float* samples, int count) {
-        return SDL_PutAudioStreamData(stream_, samples, count * sizeof(float));
+    void set_bus_gain(Bus bus, float gain) { bus_gain_[static_cast<size_t>(bus)] = gain; }
+    [[nodiscard]] float bus_gain(Bus bus) const { return bus_gain_[static_cast<size_t>(bus)]; }
+
+    // Enqueues samples through `bus`, applying that bus's gain composed
+    // with Master. Buffer size is caller-owned (no allocation here) —
+    // callers that only have a small scratch buffer use this repeatedly,
+    // which is exactly what AudioStreamSource::pump below does to stream
+    // a large buffer a chunk at a time instead of gain-scaling and
+    // enqueueing it all at once.
+    bool enqueue(Bus bus, const float* samples, int count) {
+        float gain = bus_gain_[static_cast<size_t>(bus)] * bus_gain_[static_cast<size_t>(Bus::Master)];
+        if (gain == 1.0f) {
+            return SDL_PutAudioStreamData(stream_, samples, count * static_cast<int>(sizeof(float)));
+        }
+        thread_local std::vector<float> scratch;
+        scratch.resize(static_cast<size_t>(count));
+        for (int i = 0; i < count; i++) scratch[static_cast<size_t>(i)] = samples[i] * gain;
+        return SDL_PutAudioStreamData(stream_, scratch.data(), count * static_cast<int>(sizeof(float)));
     }
+
+    // Back-compat overload: Master bus, no gain scaling beyond it.
+    bool enqueue(const float* samples, int count) { return enqueue(Bus::Master, samples, count); }
 
     void flush() { SDL_FlushAudioStream(stream_); }
 
@@ -62,9 +91,47 @@ public:
 private:
     explicit Audio(SDL_AudioStream* stream)
         : stream_(stream)
-    {}
+    {
+        for (float& g : bus_gain_) g = 1.0f;
+    }
 
     SDL_AudioStream* stream_{nullptr};
+    float bus_gain_[static_cast<size_t>(Bus::Count)]{};
+};
+
+// AudioStreamSource submits a large, already-decoded sample buffer (e.g.
+// a music track) a fixed-size chunk at a time across successive frames,
+// instead of one large enqueue call. This is "streaming" in the sense
+// that matters for the frame hot path — bounded, predictable per-frame
+// work — not disk-streaming decode, which this scaffold has no audio
+// codec to perform (SDL3 alone doesn't decode compressed audio; that
+// needs a codec library this project doesn't vendor yet, recorded as a
+// gap rather than implemented against nothing).
+class AudioStreamSource {
+public:
+    AudioStreamSource(const float* samples, size_t count, Bus bus, bool loop = false)
+        : samples_(samples), count_(count), bus_(bus), loop_(loop) {}
+
+    // Call once per frame; submits up to chunk_size samples to `audio`.
+    // Returns false once a non-looping source has fully drained.
+    bool pump(Audio& audio, size_t chunk_size = 4096) {
+        if (cursor_ >= count_) {
+            if (!loop_) return false;
+            cursor_ = 0;
+        }
+        size_t remaining = count_ - cursor_;
+        size_t n = remaining < chunk_size ? remaining : chunk_size;
+        audio.enqueue(bus_, samples_ + cursor_, static_cast<int>(n));
+        cursor_ += n;
+        return true;
+    }
+
+private:
+    const float* samples_;
+    size_t count_;
+    Bus bus_;
+    bool loop_;
+    size_t cursor_ = 0;
 };
 
 } // namespace seed

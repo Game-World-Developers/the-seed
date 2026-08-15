@@ -1,0 +1,77 @@
+#pragma once
+
+#include <GameAk/Runtime/runtime.h>
+
+#include <functional>
+#include <string>
+#include <vector>
+
+namespace seed {
+
+// ── Scene: declarative spawn/teardown intent, not simulation storage ──
+//
+// docs/runtime-architecture.md's product principles require presentation
+// state to stay decoupled from GameAK simulation storage (§4's extraction
+// step already does this for rendering); Scene applies the same rule to
+// "what exists in the world": a Scene never holds a gameak::core::Identity,
+// a DataBlock, or any other live simulation handle. It only holds Spawn
+// entries — named, deferred callbacks that *populate* the Runtime when
+// the Scene is entered — and Despawn entries that clean up on exit. This
+// is why a Scene can be constructed, described, and diffed entirely
+// without a live Runtime instance, and why swapping the active Scene
+// never means reaching into GameAK storage to sort out what belongs to
+// the old one versus the new one: each Scene's own despawn list already
+// knows what it owns.
+//
+// There is no YAML `scene` model type yet (docs/glossary.md's model list
+// is unchanged by this pass) — Scene is a hand-authored C++ construct
+// today, not something `seed sync` generates. Adding a `scene` model that
+// declares which Archetypes/Systems/StateMachines belong to it is a
+// natural next step once a project has more than one Scene and the
+// duplication of hand-written Spawn callbacks across projects becomes a
+// real cost — not designed here speculatively ahead of that need.
+class Scene {
+public:
+    using SpawnFn = std::function<void(gameak::runtime::Runtime<>&)>;
+    using DespawnFn = std::function<void(gameak::runtime::Runtime<>&)>;
+
+    explicit Scene(std::string name) : name_(std::move(name)) {}
+
+    Scene& on_enter(SpawnFn fn) { spawns_.push_back(std::move(fn)); return *this; }
+    Scene& on_exit(DespawnFn fn) { despawns_.push_back(std::move(fn)); return *this; }
+
+    void enter(gameak::runtime::Runtime<>& rt) const {
+        for (const auto& fn : spawns_) fn(rt);
+    }
+
+    void exit(gameak::runtime::Runtime<>& rt) const {
+        for (const auto& fn : despawns_) fn(rt);
+    }
+
+    [[nodiscard]] const std::string& name() const { return name_; }
+
+private:
+    std::string name_;
+    std::vector<SpawnFn> spawns_;
+    std::vector<DespawnFn> despawns_;
+};
+
+// SceneManager owns exactly one active Scene at a time and performs the
+// transition (exit old, enter new) as a single explicit call — never an
+// implicit side effect of constructing a new Scene — so "which Scene is
+// active" is always something the Application layer decided on purpose.
+class SceneManager {
+public:
+    void transition_to(gameak::runtime::Runtime<>& rt, const Scene& next) {
+        if (current_) current_->exit(rt);
+        current_ = &next;
+        current_->enter(rt);
+    }
+
+    [[nodiscard]] const Scene* current() const { return current_; }
+
+private:
+    const Scene* current_ = nullptr;
+};
+
+} // namespace seed

@@ -77,6 +77,20 @@ func TestScaffoldModesCompile(t *testing.T) {
 			if strings.Contains(string(mainCpp), "{{") {
 				t.Fatalf("main.cpp for mode %s contains an unrendered template directive:\n%s", mode, mainCpp)
 			}
+			if mode != "headless" {
+				for _, want := range []string{"InputTranslator", "seed::AssetManager", "seed::Camera2D"} {
+					if !strings.Contains(string(mainCpp), want) {
+						t.Fatalf("main.cpp for mode %s missing expected facility %q", mode, want)
+					}
+				}
+			}
+			if mode == "3d" {
+				for _, want := range []string{"seed::Scene", "seed::SceneManager"} {
+					if !strings.Contains(string(mainCpp), want) {
+						t.Fatalf("main.cpp for mode 3d missing expected facility %q", want)
+					}
+				}
+			}
 
 			buildCmd := exec.Command("xmake", "build", "-y")
 			buildCmd.Dir = projDir

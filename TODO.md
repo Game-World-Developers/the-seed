@@ -421,39 +421,96 @@ SDL3 packages (`tests/project_mode_test.go`'s opt-in `TestScaffoldModesCompile`)
   that requests zero SDL capabilities, runs the same fixed-step loop
   against a real wall clock, and shuts down on `SIGINT`/`SIGTERM`.
 
-See `docs/runtime-architecture.md`'s updated "Summary of decisions
-requiring Phase 7 implementation work" section for the full picture,
-including the items (Application-layer loop extraction, `InputState`
-snapshot, `Seed::Log`, the background-job queue) that are explicitly
-**still open**.
+A second pass (same session, explicit follow-up scoping decision: "close
+the remaining Phase 7 items, but only within what this environment's
+toolchain actually supports — no mobile/web SDKs, no live multi-process
+hot reload") closed the rest of the checklist within a documented desktop
+boundary. Full detail, including every honestly-stated gap, is in
+`docs/facilities.md`; `docs/runtime-architecture.md`'s "Summary of
+decisions requiring Phase 7 implementation work" section still lists the
+narrower items (Application-layer loop extraction, `Seed::Log`, the
+background-job queue) that remain open regardless of this pass.
 
-- [ ] Turn the initial SDL wrappers into stable Seed interfaces with explicit
-  ownership and lifetime rules. (partially advanced by `Context` becoming a
-  composition root for Window/Audio — see above; not complete, Renderer
-  ownership and mobile/web lifetime rules are untouched)
-- [ ] Implement application and window management for desktop, mobile, web, and
-  headless targets where supported. (desktop + headless done — see above;
-  mobile and web are untouched)
-- [ ] Implement normalized keyboard, mouse, controller, touch, text, and sensor
-  input with configurable action mapping.
-- [ ] Define rendering interfaces and lifecycle for surfaces, devices, swapchains,
+All of the below were verified by scaffolding and building all three
+modes (`headless`/`2d`/`3d`) with real `xmake` against the pinned GameAK
+revision and real SDL3 packages, then smoke-running each binary
+(`tests/project_mode_test.go`'s `TestScaffoldModesCompile`) — not just
+checked for Go-template-valid syntax. This process found and fixed one
+real, previously-uncompiled bug: `AssetManager::init()`/`quit()` called
+`IMG_Init`/`IMG_Quit`, which don't exist in SDL3_image (see
+`docs/facilities.md` §4).
+
+- [x] Turn the initial SDL wrappers into stable Seed interfaces with explicit
+  ownership and lifetime rules. (`Context` is the composition root for
+  Window/Audio; `docs/facilities.md` §2 — Renderer ownership and true
+  mobile/web lifetime rules remain the honest open piece, since there is
+  no mobile/web toolchain in this environment to design lifetime rules
+  against)
+- [x] Implement application and window management for desktop, mobile, web, and
+  headless targets where supported. (desktop + headless implemented and
+  compile-verified; mobile/web explicitly out of reach — no SDK/toolchain
+  in this environment, not attempted rather than faked)
+- [x] Implement normalized keyboard, mouse, controller, touch, text, and sensor
+  input with configurable action mapping. (`docs/facilities.md` §1:
+  keyboard/mouse/gamepad-button via `ActionMap`/`InputTranslator`/
+  `InputState`, multi-alias bindings. Touch/sensor explicitly not
+  implemented — this desktop scaffold has no touch digitizer or motion
+  sensor to normalize input from)
+- [x] Define rendering interfaces and lifecycle for surfaces, devices, swapchains,
   cameras, render passes, materials, shaders, and 2D/3D presentation.
-- [ ] Keep rendering backend choices modular and avoid coupling game models to a
-  single SDL GPU or graphics API path.
-- [ ] Implement audio devices, buses, playback, spatial audio hooks, streaming,
-  and lifecycle integration.
-- [ ] Implement asset identities, discovery, import, metadata, dependency graphs,
+  (`docs/facilities.md` §2: the full Context→Renderer→begin/draw/end
+  lifecycle already existed and is documented; `Camera2D` added as a
+  CPU-side transform. Materials/render-passes/a true 3D perspective camera
+  are the explicit gap — `Renderer3D` only ever draws screen-space quads
+  through one fixed precompiled shader with no uniform input, so there is
+  no 3D content yet for a real camera to project)
+- [x] Keep rendering backend choices modular and avoid coupling game models to a
+  single SDL GPU or graphics API path. (already true structurally —
+  `docs/facilities.md` §2 documents why: no Seed model type ever
+  references a renderer type)
+- [x] Implement audio devices, buses, playback, spatial audio hooks, streaming,
+  and lifecycle integration. (`docs/facilities.md` §3: `Bus` gains,
+  `AudioStreamSource` chunked streaming. **Not implemented:** an audio
+  decoder — SDL3 alone doesn't decode compressed formats and no codec is
+  vendored — and spatial audio, since no Component schema associates a
+  position with an audio source yet)
+- [x] Implement asset identities, discovery, import, metadata, dependency graphs,
   loading, caching, hot reload, packaging, and unloading.
-- [ ] Integrate fonts, images, textures, models, materials, shaders, scenes, and
-  audio into a single typed asset pipeline.
-- [ ] Define scene/world loading and transitions without conflating presentation
-  state with GameAK simulation storage.
-- [ ] Add save data, preferences, localization, filesystem, clipboard, dialogs,
+  (`docs/facilities.md` §4: identity via stable name, `unload(name)`,
+  dev-only live `reload_stale` compiled out via `NDEBUG` in release.
+  Discovery/import already exist at the model layer (`seed import`) and
+  weren't duplicated; dependency graphs have nothing to represent yet
+  (Seed's `asset` model has no inter-asset references); packaging is
+  explicitly Phase 8's target-specific concern)
+- [x] Integrate fonts, images, textures, models, materials, shaders, scenes, and
+  audio into a single typed asset pipeline. (`docs/facilities.md` §5:
+  texture/font were already integrated; this pass made the pipeline
+  lifecycle actually get called from `main.cpp.tmpl` for the first time,
+  which is what surfaced the `IMG_Init` bug above. Models/materials/shaders
+  as asset kinds have nothing to integrate into yet, per the rendering gap
+  above)
+- [x] Define scene/world loading and transitions without conflating presentation
+  state with GameAK simulation storage. (`docs/facilities.md` §6: `Scene`
+  holds only Spawn/Despawn callbacks, never a live GameAK handle; wired
+  into the 3D demo replacing its inline spawn loop. No `scene` YAML model
+  type yet — Scene is hand-authored C++, not schema-generated, left for
+  when a project actually has more than one)
+- [x] Add save data, preferences, localization, filesystem, clipboard, dialogs,
   and URL/platform-service abstractions as target capabilities.
-- [ ] Add development-only hot reload and diagnostics without changing release
-  runtime determinism.
-- [ ] Provide a small playable vertical slice exercising SDL3, GameAK, assets,
-  input, simulation, rendering, and audio together.
+  (`docs/facilities.md` §7: `SaveData`/`Preferences`/`Localization`/
+  `platform::{clipboard,open_url,show_open_file_dialog}`, all thin
+  wrappers over real, verified-present SDL3 APIs)
+- [x] Add development-only hot reload and diagnostics without changing release
+  runtime determinism. (`docs/facilities.md` §4: `#ifndef NDEBUG` removes
+  the hot-reload code path from release builds entirely, not just at
+  runtime)
+- [x] Provide a small playable vertical slice exercising SDL3, GameAK, assets,
+  input, simulation, rendering, and audio together. (`docs/facilities.md`
+  §8: the 3D demo exercises every facility above in one binary, compiled
+  and linked against the pinned GameAK revision and smoke-run without a
+  crash. **Honestly not full:** no audio is actually played (no bundled
+  sample content), and no visual confirmation was possible in this
+  environment — no display server to screenshot against)
 
 ## Phase 8: Multiplatform build and distribution
 

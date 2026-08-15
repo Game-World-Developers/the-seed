@@ -1,0 +1,173 @@
+#pragma once
+
+#include <SDL3/SDL.h>
+
+#include <cstddef>
+#include <cstdint>
+
+namespace seed {
+
+// ── Normalized input: Action / ActionMap / InputState ───────────────
+//
+// docs/runtime-architecture.md §3 decides that SDL input events are
+// classified into a per-frame InputState snapshot by the Application
+// layer, once, before Systems run — never handled as raw SDL_Event
+// switches scattered through game code. Action is the name a game binds
+// gameplay intent to; ActionMap is the (data-only) binding table; a game
+// extends Action freely by adding its own values before Count.
+enum class Action : uint32_t {
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
+    Primary,
+    Secondary,
+    Pause,
+    Count,
+};
+
+// Keyboard and gamepad-button bindings for every Action. Each Action may
+// have up to kMaxAliases keys/buttons bound to it (e.g. both WASD and
+// arrow keys for movement) — flat, fixed-size arrays, no heap allocation,
+// consistent with "no hidden allocation in the frame hot path."
+struct ActionMap {
+    static constexpr int kMaxAliases = 3;
+
+    SDL_Keycode key[static_cast<size_t>(Action::Count)][kMaxAliases]{};
+    SDL_GamepadButton button[static_cast<size_t>(Action::Count)][kMaxAliases];
+
+    ActionMap() {
+        // SDL_GAMEPAD_BUTTON_INVALID is -1, not 0, so the "empty slot"
+        // sentinel needs an explicit fill — zero-initialization would
+        // default every slot to SDL_GAMEPAD_BUTTON_SOUTH (value 0)
+        // instead, silently binding every unbound Action to it.
+        for (auto& slots : button) {
+            for (auto& slot : slots) slot = SDL_GAMEPAD_BUTTON_INVALID;
+        }
+    }
+
+    void bind_key(Action a, SDL_Keycode k) {
+        auto& slots = key[static_cast<size_t>(a)];
+        for (auto& slot : slots) {
+            if (slot == 0) { slot = k; return; }
+        }
+    }
+
+    void bind_button(Action a, SDL_GamepadButton b) {
+        auto& slots = button[static_cast<size_t>(a)];
+        for (auto& slot : slots) {
+            if (slot == SDL_GAMEPAD_BUTTON_INVALID) { slot = b; return; }
+        }
+    }
+};
+
+// Per-frame normalized input snapshot: what Systems/game code actually
+// read. `down` is the current held state; `pressed`/`released` are
+// this-frame transitions, cleared every InputTranslator::begin_frame.
+//
+// Touch and sensor input (roadmap: "keyboard, mouse, controller, touch,
+// text, and sensor input") are not represented here — this desktop
+// scaffold has no touch digitizer or motion sensor to normalize input
+// from, and adding fields for capabilities the target can never satisfy
+// would misrepresent what's actually implemented. Extending InputState
+// with a Touch/Sensor bucket is future work for a target that has them.
+struct InputState {
+    bool action_down[static_cast<size_t>(Action::Count)]{};
+    bool action_pressed[static_cast<size_t>(Action::Count)]{};
+    bool action_released[static_cast<size_t>(Action::Count)]{};
+
+    float mouse_x = 0.0f;
+    float mouse_y = 0.0f;
+    bool mouse_down[3]{};
+
+    bool quit_requested = false;
+
+    [[nodiscard]] bool down(Action a) const { return action_down[static_cast<size_t>(a)]; }
+    [[nodiscard]] bool pressed(Action a) const { return action_pressed[static_cast<size_t>(a)]; }
+    [[nodiscard]] bool released(Action a) const { return action_released[static_cast<size_t>(a)]; }
+};
+
+// InputTranslator is the one place SDL_Event -> InputState translation
+// happens (docs/runtime-architecture.md §3's "input" bucket). It never
+// handles window/lifecycle events itself (SDL_EVENT_QUIT only sets
+// InputState::quit_requested — the Application layer decides what to do
+// with that, matching the four-bucket split: Input never owns lifecycle
+// decisions).
+class InputTranslator {
+public:
+    explicit InputTranslator(ActionMap map) : map_(map) {}
+
+    void begin_frame(InputState& state) const {
+        for (size_t i = 0; i < static_cast<size_t>(Action::Count); i++) {
+            state.action_pressed[i] = false;
+            state.action_released[i] = false;
+        }
+    }
+
+    void feed(const SDL_Event& event, InputState& state) const {
+        switch (event.type) {
+        case SDL_EVENT_QUIT:
+            state.quit_requested = true;
+            break;
+
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+            set_action(state, key_action(event.key.key), event.type == SDL_EVENT_KEY_DOWN);
+            break;
+
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP:
+            set_action(state, button_action(static_cast<SDL_GamepadButton>(event.gbutton.button)),
+                       event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+            break;
+
+        case SDL_EVENT_MOUSE_MOTION:
+            state.mouse_x = event.motion.x;
+            state.mouse_y = event.motion.y;
+            break;
+
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            if (event.button.button >= 1 && event.button.button <= 3) {
+                state.mouse_down[event.button.button - 1] = (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+            }
+            break;
+
+        default:
+            break;
+        }
+    }
+
+private:
+    [[nodiscard]] int key_action(SDL_Keycode k) const {
+        if (k == SDLK_UNKNOWN) return -1;
+        for (size_t i = 0; i < static_cast<size_t>(Action::Count); i++) {
+            for (int j = 0; j < ActionMap::kMaxAliases; j++) {
+                if (map_.key[i][j] == k) return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
+    [[nodiscard]] int button_action(SDL_GamepadButton b) const {
+        if (b == SDL_GAMEPAD_BUTTON_INVALID) return -1;
+        for (size_t i = 0; i < static_cast<size_t>(Action::Count); i++) {
+            for (int j = 0; j < ActionMap::kMaxAliases; j++) {
+                if (map_.button[i][j] == b) return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
+    static void set_action(InputState& state, int index, bool is_down) {
+        if (index < 0) return;
+        bool was_down = state.action_down[index];
+        state.action_down[index] = is_down;
+        if (is_down && !was_down) state.action_pressed[index] = true;
+        if (!is_down && was_down) state.action_released[index] = true;
+    }
+
+    ActionMap map_;
+};
+
+} // namespace seed
