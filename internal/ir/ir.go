@@ -152,7 +152,10 @@ type Block struct {
 	AtlasPath   string  `json:"atlas_path,omitempty"`
 }
 
-// ScheduleEntry is one system's position in deterministic execution order:
+// ScheduleEntry is one system's position in deterministic execution order,
+// matching GameAK's actual controller ordering
+// (Runtime::execute_single_tick stable-sorts by `a.priority > b.priority`,
+// i.e. higher priority runs first — see docs/gameak-mapping.md): highest
 // Priority first, then declaration order (Ref.Name, since scanAllModels
 // already walks Models/System in lexicographic file-name order) — the
 // tie-break rule decided in docs/semantics.md §8.
@@ -335,10 +338,12 @@ func Build(compiled *generators.CompileResult) (*IR, error) {
 	return out, nil
 }
 
-// buildSchedule orders systems by Priority then by name — the deterministic
-// tie-break decided in docs/semantics.md §8. Systems, not just their names,
-// are duplicated here as ScheduleEntry so IR consumers have a single place
-// to read final execution order without re-sorting Systems themselves.
+// buildSchedule orders systems the way GameAK's Runtime actually will:
+// highest Priority first (see the ScheduleEntry doc comment), then name as
+// the deterministic tie-break decided in docs/semantics.md §8. Systems,
+// not just their names, are duplicated here as ScheduleEntry so IR
+// consumers have a single place to read final execution order without
+// re-sorting Systems themselves.
 func buildSchedule(systems []System) []ScheduleEntry {
 	schedule := make([]ScheduleEntry, 0, len(systems))
 	for _, s := range systems {
@@ -346,7 +351,7 @@ func buildSchedule(systems []System) []ScheduleEntry {
 	}
 	sort.SliceStable(schedule, func(i, j int) bool {
 		if schedule[i].Priority != schedule[j].Priority {
-			return schedule[i].Priority < schedule[j].Priority
+			return schedule[i].Priority > schedule[j].Priority
 		}
 		return lessRef(schedule[i].Ref, schedule[j].Ref)
 	})

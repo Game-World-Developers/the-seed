@@ -2,11 +2,51 @@ package commands
 
 import (
 	"fmt"
+	"os"
 
+	"Game-Developers-World/seed/internal/backend/gameak"
 	"Game-Developers-World/seed/internal/generators"
+	"Game-Developers-World/seed/internal/ir"
 
 	"github.com/spf13/cobra"
 )
+
+// checkGameAKBackend re-validates the current model set against GameAK's
+// backend-specific limitations (bare-name collisions, unsupported event
+// delivery — see internal/backend/gameak) before generation runs. It
+// duplicates the semantic Compile pass generators.Sync already performs
+// internally, but that pass has no notion of GameAK's own constraints —
+// see docs/gameak-mapping.md's "Known gap" note on why this check lives
+// in the CLI layer rather than inside internal/generators (importing
+// internal/ir there would be a package import cycle, since ir already
+// depends on generators for its Model/CompileResult types).
+func checkGameAKBackend() error {
+	result, err := generators.Compile()
+	if err != nil {
+		return fmt.Errorf("compiling models: %w", err)
+	}
+	if result.HasErrors() {
+		// generators.Sync will report these the same way; nothing further
+		// to check here since the IR can't be built from a failed compile.
+		return nil
+	}
+	built, err := ir.Build(result)
+	if err != nil {
+		return err
+	}
+	diags := gameak.New().Validate(built)
+	hasErrors := false
+	for _, d := range diags {
+		fmt.Fprintf(os.Stderr, "  %s\n", d)
+		if d.Severity == gameak.SeverityError {
+			hasErrors = true
+		}
+	}
+	if hasErrors {
+		return fmt.Errorf("gameak backend rejected the model set")
+	}
+	return nil
+}
 
 var checkSync bool
 
@@ -52,6 +92,9 @@ Use --check to show sync status without generating files.`,
 				}
 			}
 			return nil
+		}
+		if err := checkGameAKBackend(); err != nil {
+			return err
 		}
 		fmt.Println("Syncing models...")
 		return generators.Sync()

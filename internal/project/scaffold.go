@@ -6,9 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-
 	"Game-Developers-World/seed/internal/generators"
 	projecttemplates "Game-Developers-World/seed/internal/project/templates"
 )
@@ -62,13 +59,8 @@ func Scaffold(name, mode string) error {
 
 	logStatus("clone", "GameAK...")
 	gameakDir := filepath.Join(root, "Third-Party", "GameAK")
-	if _, err := gogit.PlainClone(gameakDir, false, &gogit.CloneOptions{
-		URL:           "https://github.com/Game-World-Developers/GameAK.git",
-		ReferenceName: plumbing.NewBranchReferenceName("dev"),
-		SingleBranch:  true,
-		Depth:         1,
-	}); err != nil {
-		return fmt.Errorf("failed to clone GameAK: %w", err)
+	if err := CloneGameAK(gameakDir); err != nil {
+		return err
 	}
 
 	if err := writeProjectFiles(name, mode, root, gameakDir, false); err != nil {
@@ -127,13 +119,8 @@ func ScaffoldInit(opts InitOpts) error {
 
 	if _, err := os.Stat(gameakDir); os.IsNotExist(err) {
 		logStatus("clone", "GameAK...")
-		if _, err := gogit.PlainClone(gameakDir, false, &gogit.CloneOptions{
-			URL:           "https://github.com/Game-World-Developers/GameAK.git",
-			ReferenceName: plumbing.NewBranchReferenceName("dev"),
-			SingleBranch:  true,
-			Depth:         1,
-		}); err != nil {
-			return fmt.Errorf("failed to clone GameAK: %w", err)
+		if err := CloneGameAK(gameakDir); err != nil {
+			return err
 		}
 	}
 

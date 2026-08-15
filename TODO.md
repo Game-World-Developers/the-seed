@@ -216,17 +216,57 @@ this phase is design/documentation only, so no template code was changed.
 
 ## Phase 5: Integrate the GameAK simulation layer
 
-- [ ] Move GameAK-specific decisions out of model parsing and generic analysis.
-- [ ] Create an explicit backend interface that consumes the Seed IR.
-- [ ] Map Seed storage semantics to GameAK Data Blocks and layout strategies.
-- [ ] Map identities, commands, scheduler dependencies, events, and ephemeral
-  data to GameAK primitives.
-- [ ] Document every mapping rule and its performance implications.
-- [ ] Report backend limitations as diagnostics instead of silently degrading.
-- [ ] Add golden tests from Seed models through IR to generated GameAK code.
-- [ ] Add compile tests against the supported GameAK revision.
-- [ ] Pin or record GameAK compatibility instead of depending implicitly on its
-  moving `dev` branch.
+- [x] Move GameAK-specific decisions out of model parsing and generic analysis.
+  (verified: `internal/generators/model.go` and `analysis.go` already
+  contain zero GameAK references — GameAK specifics live only in
+  `internal/generators/templates/` and, as of this phase, in the new
+  `internal/backend/gameak` package)
+- [x] Create an explicit backend interface that consumes the Seed IR.
+  (`internal/backend/gameak.Backend`, consuming `*ir.IR`. **Scoped, not
+  full:** it validates the IR against GameAK's constraints; it does not
+  yet *generate* GameAK C++ from the IR — generation still runs off
+  decoded YAML models directly through the existing templates. See
+  `docs/gameak-mapping.md`'s opening "Known gap" for why that migration
+  was left out of this pass)
+- [x] Map Seed storage semantics to GameAK Data Blocks and layout strategies.
+  (`docs/gameak-mapping.md` §1 — Component → `BlockTypeDescriptor`/
+  `DataBlock`; found every component defaults to `LayoutStrategy::AoS`
+  with no Seed schema field to request otherwise)
+- [x] Map identities, commands, scheduler dependencies, events, and ephemeral
+  data to GameAK primitives. (`docs/gameak-mapping.md` §2-5, §7 —
+  identities to `gameak::core::Identity`; Commands to GameAK's existing
+  `Command` variant set, ready for Phase 6 to target; Systems to
+  controllers via `register_controller`; **found and fixed a real
+  inversion**: GameAK sorts controllers by *higher* priority first, while
+  `docs/semantics.md` §8 had documented the opposite — corrected there and
+  in `internal/ir`'s schedule ordering; events have **no GameAK primitive
+  at all** today, the sharpest gap in the mapping; ephemeral data is
+  wired into the generated System signature but has no Seed model concept
+  yet)
+- [x] Document every mapping rule and its performance implications.
+  (`docs/gameak-mapping.md` — e.g. narrow `Access` lists aren't just
+  documentation, they're what lets GameAK's controller-grouping safely
+  parallelize Systems; `ConvertLayout` is a structural reshape, not free)
+- [x] Report backend limitations as diagnostics instead of silently degrading.
+  (`internal/backend/gameak.Validate`: bare-name collisions across
+  namespaces — real today, since `rt.define`/`register_<Name>` are keyed
+  by bare name only — are errors; unsupported event delivery is a
+  warning. Wired into both `seed compile` and `seed sync`, the latter via
+  `internal/commands/sync.go`'s `checkGameAKBackend`)
+- [x] Add golden tests from Seed models through IR to generated GameAK code.
+  (`tests/golden_test.go` + `tests/testdata/example-domain-ir.golden.json`,
+  using the `docs/examples` domain: one golden check on the IR's JSON
+  shape, one on generated `.hpp` content)
+- [x] Add compile tests against the supported GameAK revision.
+  (`tests/gameak_compat_test.go`: opt-in via `SEED_TEST_GAMEAK_COMPILE=1`
+  since it needs network and a real xmake toolchain; builds GameAK's own
+  static libraries with Seed's generated `gameak-xmake.lua`. Run and
+  passed against the pinned revision while implementing this phase)
+- [x] Pin or record GameAK compatibility instead of depending implicitly on its
+  moving `dev` branch. (`internal/project.GameAKPinnedRevision`, a
+  specific commit SHA; `seed new`/`seed init` now clone full history and
+  checkout that pin instead of shallow-cloning `dev`'s moving tip — the
+  previous behavior this item explicitly warns against)
 
 ## Phase 6: Build the observable Cardinal
 

@@ -147,7 +147,19 @@ Given current fields (`SystemModel.Entities`, `.Access`, `.Priority`):
   producer/consumer graphs without inferring intent. A System with no
   `Emits` produces no events by definition — this is required, not inferred.
 - **Ordering:** `Priority int` is the primary scheduling hint, lower runs
-  first. **Decision:** ties are broken by declaration order within a single
+  first. **Correction (Phase 5):** GameAK's actual controller execution
+  order is the opposite — `Runtime::execute_single_tick` stable-sorts
+  registered controllers with `a.priority > b.priority`, i.e. **higher
+  priority runs first**. Seed's templates pass `Priority` through to
+  `register_controller` unmodified, so today's generated behavior is
+  GameAK's (higher first), not this section's original "lower first"
+  intent. Since no project has depended on either direction yet, the fix
+  is to adopt GameAK's direction as Seed's own semantics rather than
+  translate it at generation time — one fewer mapping rule to maintain.
+  Read every "lower runs first" statement below as superseded by "higher
+  priority runs first"; see `docs/gameak-mapping.md`'s scheduler mapping
+  section for the full backend rationale. **Decision:** ties are broken by
+  declaration order within a single
   phase — the order Systems are discovered while walking `Models/System/` in
   lexicographic filename order (already the natural, deterministic order a
   directory walk produces, and consistent with §11's determinism

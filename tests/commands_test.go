@@ -211,6 +211,51 @@ func TestCommandsBinary(t *testing.T) {
 			t.Fatal("expected no Include/ output when compile fails")
 		}
 	})
+
+	t.Run("compile and sync both reject a GameAK backend collision Seed's own symbol table allows", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "backend-collision")
+		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Component"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+		// Two components named "Position" in different namespaces: valid
+		// per Seed's own namespace-aware symbol table (semantic Compile
+		// passes), but GameAK registers block types by bare name only —
+		// see internal/backend/gameak.
+		core := "type: component\nname: Position\nnamespace: Core\nfields: []\n"
+		physics := "type: component\nname: Position\nnamespace: Physics\nfields: []\n"
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Component", "Position.yaml"), []byte(core), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Component", "PositionPhysics.yaml"), []byte(physics), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		compileCmd := exec.Command(binPath, "compile")
+		compileCmd.Dir = projDir
+		compileOut, compileErr := compileCmd.CombinedOutput()
+		if compileErr == nil {
+			t.Fatalf("expected 'compile' to reject the backend collision, got: %s", compileOut)
+		}
+		if !contains(string(compileOut), "rt.define") {
+			t.Fatalf("expected 'compile' diagnostic to mention rt.define, got: %s", compileOut)
+		}
+
+		syncCmd := exec.Command(binPath, "sync")
+		syncCmd.Dir = projDir
+		syncOut, syncErr := syncCmd.CombinedOutput()
+		if syncErr == nil {
+			t.Fatalf("expected 'sync' to reject the backend collision, got: %s", syncOut)
+		}
+		if !contains(string(syncOut), "rt.define") {
+			t.Fatalf("expected 'sync' diagnostic to mention rt.define, got: %s", syncOut)
+		}
+		if _, statErr := os.Stat(filepath.Join(projDir, "Include")); !os.IsNotExist(statErr) {
+			t.Fatal("expected no Include/ output when sync aborts on a backend collision")
+		}
+	})
 }
 
 func TestDoctorChecks(t *testing.T) {

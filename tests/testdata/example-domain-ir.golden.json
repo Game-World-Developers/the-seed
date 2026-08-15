@@ -1,0 +1,275 @@
+{
+  "version": "0.1.0",
+  "components": [
+    {
+      "type": "component",
+      "name": "Health",
+      "namespace": "Core",
+      "fields": [
+        {
+          "name": "current",
+          "type": "int"
+        },
+        {
+          "name": "max",
+          "type": "int"
+        }
+      ]
+    },
+    {
+      "type": "component",
+      "name": "Position",
+      "namespace": "Core",
+      "fields": [
+        {
+          "name": "x",
+          "type": "float"
+        },
+        {
+          "name": "y",
+          "type": "float"
+        },
+        {
+          "name": "z",
+          "type": "float"
+        }
+      ]
+    },
+    {
+      "type": "component",
+      "name": "Velocity",
+      "namespace": "Core",
+      "fields": [
+        {
+          "name": "dx",
+          "type": "float"
+        },
+        {
+          "name": "dy",
+          "type": "float"
+        },
+        {
+          "name": "dz",
+          "type": "float"
+        }
+      ]
+    }
+  ],
+  "traits": [
+    {
+      "type": "trait",
+      "name": "Living",
+      "namespace": "Core",
+      "components": [
+        {
+          "type": "component",
+          "name": "Health",
+          "namespace": "Core"
+        }
+      ]
+    },
+    {
+      "type": "trait",
+      "name": "Movable",
+      "namespace": "Core",
+      "components": [
+        {
+          "type": "component",
+          "name": "Position",
+          "namespace": "Core"
+        },
+        {
+          "type": "component",
+          "name": "Velocity",
+          "namespace": "Core"
+        }
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "type": "entity",
+      "name": "PlayerEntity",
+      "namespace": "Core",
+      "traits": [
+        {
+          "type": "trait",
+          "name": "Movable",
+          "namespace": "Core"
+        },
+        {
+          "type": "trait",
+          "name": "Living",
+          "namespace": "Core"
+        }
+      ],
+      "components": [
+        {
+          "type": "component",
+          "name": "Health",
+          "namespace": "Core"
+        },
+        {
+          "type": "component",
+          "name": "Position",
+          "namespace": "Core"
+        },
+        {
+          "type": "component",
+          "name": "Velocity",
+          "namespace": "Core"
+        }
+      ]
+    }
+  ],
+  "archetypes": [
+    {
+      "type": "archetype",
+      "name": "DefaultPlayerArchetype",
+      "namespace": "Core",
+      "entity": {
+        "type": "entity",
+        "name": "PlayerEntity",
+        "namespace": "Core"
+      }
+    }
+  ],
+  "state_machines": [
+    {
+      "type": "state_machine",
+      "name": "PlayerMovementFSM",
+      "namespace": "Core",
+      "entity": {
+        "type": "entity",
+        "name": "PlayerEntity",
+        "namespace": "Core"
+      },
+      "initial": "Idle",
+      "states": [
+        {
+          "name": "Idle",
+          "transitions": [
+            {
+              "event_name": "StartMoveEvent",
+              "event": {
+                "type": "event",
+                "name": "StartMoveEvent",
+                "namespace": "Core"
+              },
+              "target": "Running"
+            }
+          ]
+        },
+        {
+          "name": "Running",
+          "transitions": [
+            {
+              "event_name": "StopMoveEvent",
+              "event": {
+                "type": "event",
+                "name": "StopMoveEvent",
+                "namespace": "Core"
+              },
+              "target": "Idle"
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "type": "event",
+          "name": "StartMoveEvent",
+          "namespace": "Core"
+        },
+        {
+          "type": "event",
+          "name": "StopMoveEvent",
+          "namespace": "Core"
+        }
+      ],
+      "priority": 0
+    }
+  ],
+  "events": [
+    {
+      "type": "event",
+      "name": "StartMoveEvent",
+      "namespace": "Core",
+      "fields": [
+        {
+          "name": "dx",
+          "type": "float"
+        },
+        {
+          "name": "dy",
+          "type": "float"
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "StopMoveEvent",
+      "namespace": "Core",
+      "fields": []
+    }
+  ],
+  "systems": [
+    {
+      "type": "system",
+      "name": "MovementSystem",
+      "namespace": "Core",
+      "entities": [
+        {
+          "type": "entity",
+          "name": "PlayerEntity",
+          "namespace": "Core"
+        }
+      ],
+      "access": [
+        {
+          "type": "component",
+          "name": "Position",
+          "namespace": "Core"
+        },
+        {
+          "type": "component",
+          "name": "Velocity",
+          "namespace": "Core"
+        }
+      ],
+      "priority": 0,
+      "emits": []
+    }
+  ],
+  "assets": [
+    {
+      "type": "asset",
+      "name": "PlayerTexture",
+      "namespace": "Core",
+      "kind": "texture",
+      "path": "Assets/Textures/Player.bmp"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "block",
+      "name": "StoneBlock",
+      "namespace": "Core",
+      "tile_index": 1,
+      "solid": true,
+      "transparent": false,
+      "fluid": false,
+      "hardness": 1.5,
+      "drop": "StoneBlock",
+      "atlas_path": "Assets/Textures/TerrainAtlas.bmp"
+    }
+  ],
+  "schedule": [
+    {
+      "type": "system",
+      "name": "MovementSystem",
+      "namespace": "Core",
+      "priority": 0
+    }
+  ]
+}

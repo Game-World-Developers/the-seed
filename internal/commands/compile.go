@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"Game-Developers-World/seed/internal/backend/gameak"
 	"Game-Developers-World/seed/internal/generators"
 	"Game-Developers-World/seed/internal/ir"
 
@@ -48,6 +49,18 @@ a human-readable summary.`,
 		built, err := ir.Build(result)
 		if err != nil {
 			return err
+		}
+
+		backendDiags := gameak.New().Validate(built)
+		hasBackendErrors := false
+		for _, d := range backendDiags {
+			fmt.Fprintf(os.Stderr, "  %s\n", d)
+			if d.Severity == gameak.SeverityError {
+				hasBackendErrors = true
+			}
+		}
+		if hasBackendErrors {
+			return fmt.Errorf("gameak backend rejected the model set")
 		}
 
 		if compileJSON {
