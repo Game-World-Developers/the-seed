@@ -65,7 +65,7 @@ If the project directory already exists, you will be prompted before overwriting
 }
 
 func init() {
-	newCmd.Flags().StringVar(&newMode, "mode", "3d", "Project mode: 2d or 3d")
+	newCmd.Flags().StringVar(&newMode, "mode", "3d", "Project mode: 2d, 3d, or headless")
 	newCmd.Flags().BoolVarP(&newOverwrite, "overwrite", "o", false, "Overwrite existing files without prompting")
 	rootCmd.AddCommand(newCmd)
 }

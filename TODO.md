@@ -389,10 +389,51 @@ today versus what still needs Phase 7's runtime work.
 
 ## Phase 7: Build SDL3 platform and game facilities
 
+**Scope note:** this is a 12-item, effectively full-engine checklist. Per
+an explicit scoping decision with the user, this pass fixed exactly the
+concrete, already-diagnosed gaps `docs/runtime-architecture.md` had
+recorded from Phase 4 (its "Summary of decisions requiring Phase 7
+implementation work" section) rather than attempting the whole phase.
+Checklist items below are left unchecked except where a scoped fix
+genuinely closes them; most remain open and are not claimed otherwise.
+
+**What this pass actually did**, verified by scaffolding and building all
+three modes with real xmake against the pinned GameAK revision and real
+SDL3 packages (`tests/project_mode_test.go`'s opt-in `TestScaffoldModesCompile`):
+
+- Fixed the fixed-step/variable-dt bug: `main.cpp.tmpl` now runs a single
+  accumulator-driven loop in every mode instead of the two inconsistent,
+  incorrect patterns Phase 4 found.
+- Added the presentation extraction step for the 3D demo path:
+  `extract_render_list()` is now the only place per frame that reads
+  GameAK block storage; the render loop that follows touches only plain
+  value structs.
+- Turned `seed::Context` into a composition root for `Window`/`Audio`
+  (via `create_window`/`create_audio`, replacing independently constructed
+  locals) and added a `Capability` type — `Renderer` ownership stays
+  outside `Context` for now, documented as an open boundary in the header
+  itself, not silently dropped.
+- Added `--mode headless` end-to-end: mode validation
+  (`project.validateMode`, rejecting anything other than `2d`/`3d`/
+  `headless` — also a small, free step toward Phase 11's "validate `seed
+  new --mode`" item), scaffolding that skips the image/font/asset-manager/
+  renderer stack and its SDL3 packages entirely, and a generated `main()`
+  that requests zero SDL capabilities, runs the same fixed-step loop
+  against a real wall clock, and shuts down on `SIGINT`/`SIGTERM`.
+
+See `docs/runtime-architecture.md`'s updated "Summary of decisions
+requiring Phase 7 implementation work" section for the full picture,
+including the items (Application-layer loop extraction, `InputState`
+snapshot, `Seed::Log`, the background-job queue) that are explicitly
+**still open**.
+
 - [ ] Turn the initial SDL wrappers into stable Seed interfaces with explicit
-  ownership and lifetime rules.
+  ownership and lifetime rules. (partially advanced by `Context` becoming a
+  composition root for Window/Audio — see above; not complete, Renderer
+  ownership and mobile/web lifetime rules are untouched)
 - [ ] Implement application and window management for desktop, mobile, web, and
-  headless targets where supported.
+  headless targets where supported. (desktop + headless done — see above;
+  mobile and web are untouched)
 - [ ] Implement normalized keyboard, mouse, controller, touch, text, and sensor
   input with configurable action mapping.
 - [ ] Define rendering interfaces and lifecycle for surfaces, devices, swapchains,

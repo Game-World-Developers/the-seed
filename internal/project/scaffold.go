@@ -15,6 +15,19 @@ var assetDirs = map[string][]string{
 	"3d": {"Models", "Textures", "Materials", "Shaders"},
 }
 
+var validModes = map[string]bool{
+	"2d":       true,
+	"3d":       true,
+	"headless": true,
+}
+
+func validateMode(mode string) error {
+	if !validModes[mode] {
+		return fmt.Errorf("invalid mode %q: valid modes are 2d, 3d, headless", mode)
+	}
+	return nil
+}
+
 func projectNameFromDir() string {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -24,6 +37,9 @@ func projectNameFromDir() string {
 }
 
 func Scaffold(name, mode string) error {
+	if err := validateMode(mode); err != nil {
+		return err
+	}
 	if _, err := exec.LookPath("xmake"); err != nil {
 		fmt.Println("Warning: xmake not found. Install it from https://xmake.io")
 	}
@@ -82,6 +98,9 @@ type InitOpts struct {
 }
 
 func ScaffoldInit(opts InitOpts) error {
+	if err := validateMode(opts.Mode); err != nil {
+		return err
+	}
 	if _, err := exec.LookPath("xmake"); err != nil {
 		fmt.Println("Warning: xmake not found. Install it from https://xmake.io")
 	}
@@ -222,36 +241,45 @@ func writeProjectFiles(name, mode, root, gameakDir string, skipExisting bool) er
 		return err
 	}
 
-	if err := renderStatic("seed-surface.hpp", filepath.Join(root, "Include", "Seed", "surface.hpp")); err != nil {
-		return err
+	// Headless targets have no window/renderer to feed assets to, so the
+	// image/font/asset-manager stack (and the SDL_image/SDL_ttf packages
+	// it needs) is skipped entirely rather than scaffolded unused — see
+	// docs/runtime-architecture.md §8/§10.
+	if mode != "headless" {
+		if err := renderStatic("seed-surface.hpp", filepath.Join(root, "Include", "Seed", "surface.hpp")); err != nil {
+			return err
+		}
+
+		if err := renderStatic("seed-font.hpp", filepath.Join(root, "Include", "Seed", "font.hpp")); err != nil {
+			return err
+		}
+
+		if err := renderStatic("seed-image.hpp", filepath.Join(root, "Include", "Seed", "image.hpp")); err != nil {
+			return err
+		}
+
+		if err := renderStatic("seed-asset-manager.hpp", filepath.Join(root, "Include", "Seed", "asset_manager.hpp")); err != nil {
+			return err
+		}
 	}
 
-	if err := renderStatic("seed-font.hpp", filepath.Join(root, "Include", "Seed", "font.hpp")); err != nil {
-		return err
-	}
-
-	if err := renderStatic("seed-image.hpp", filepath.Join(root, "Include", "Seed", "image.hpp")); err != nil {
-		return err
-	}
-
-	if err := renderStatic("seed-asset-manager.hpp", filepath.Join(root, "Include", "Seed", "asset_manager.hpp")); err != nil {
-		return err
-	}
-
-	if mode == "2d" {
+	switch mode {
+	case "2d":
 		if err := renderStatic("seed-texture.hpp", filepath.Join(root, "Include", "Seed", "texture.hpp")); err != nil {
 			return err
 		}
 		if err := renderStatic("seed-renderer_2d.hpp", filepath.Join(root, "Include", "Seed", "renderer_2d.hpp")); err != nil {
 			return err
 		}
-	} else {
+	case "3d":
 		if err := renderStatic("seed-renderer_3d.hpp", filepath.Join(root, "Include", "Seed", "renderer_3d.hpp")); err != nil {
 			return err
 		}
 		if err := renderStatic("seed-shaders.hpp", filepath.Join(root, "Include", "Seed", "shaders.hpp")); err != nil {
 			return err
 		}
+	case "headless":
+		// no renderer to scaffold
 	}
 
 	if err := os.WriteFile(filepath.Join(root, ".seed_project"), []byte{}, 0644); err != nil {

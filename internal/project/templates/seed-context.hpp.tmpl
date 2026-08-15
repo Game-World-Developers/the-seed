@@ -3,10 +3,43 @@
 #include <GameAk/Core/result.h>
 #include <SDL3/SDL.h>
 
+#include <optional>
+
+#include "audio.hpp"
+#include "window.hpp"
+
 namespace seed {
 
-// ── RAII wrapper for SDL_Init / SDL_Quit ──────────────────────────
+// ── Capability set ──────────────────────────────────────────────────
+//
+// Capabilities map directly onto SDL_InitFlags bits so Context::create
+// stays a mechanical translation, but naming them lets the rest of Seed
+// (and generated main.cpp) reason about "what this target needs" instead
+// of raw SDL flags — see docs/runtime-architecture.md §8. A target that
+// doesn't request a capability never attempts to construct the service
+// that needs it (Window needs Video, Audio needs Audio); this is the
+// "don't attempt what wasn't requested" half of the capability contract.
+// The other half — a requested-but-unavailable capability degrading
+// instead of aborting — is left to the caller, matching how Audio is
+// already treated as non-fatal in generated main.cpp today.
+enum class Capability : SDL_InitFlags {
+    Video   = SDL_INIT_VIDEO,
+    Audio   = SDL_INIT_AUDIO,
+    Gamepad = SDL_INIT_GAMEPAD,
+    Haptic  = SDL_INIT_HAPTIC,
+    Sensor  = SDL_INIT_SENSOR,
+};
 
+// ── Context: the composition root ───────────────────────────────────
+//
+// Context owns SDL's lifetime (SDL_Init/SDL_Quit) and, once created
+// through it, the Window and Audio device — the platform services every
+// project mode (2d/3d/headless) can uniformly own regardless of which
+// Renderer type it ends up using. Renderer stays constructed separately
+// in main() today: it is templated on project mode (Renderer2D vs.
+// Renderer3D) and Context has no reason to know which one a given
+// project uses. Folding Renderer ownership into Context as well is left
+// for when a concrete need (e.g. runtime renderer swapping) justifies it.
 class Context {
 public:
     static gameak::core::Result<Context> create(SDL_InitFlags flags) {
@@ -16,7 +49,7 @@ public:
                 SDL_GetError()
             );
         }
-        return Context();
+        return Context(flags);
     }
 
     ~Context() { SDL_Quit(); }
@@ -27,8 +60,44 @@ public:
     Context(Context&&) = default;
     Context& operator=(Context&&) = default;
 
+    [[nodiscard]] bool has(Capability cap) const {
+        return (flags_ & static_cast<SDL_InitFlags>(cap)) != 0;
+    }
+
+    // Constructs the Window this Context owns. Only valid to call when
+    // has(Capability::Video) is true.
+    gameak::core::Result<void> create_window(
+        const char* title, int width, int height, SDL_WindowFlags flags = 0
+    ) {
+        auto res = Window::create(title, width, height, flags);
+        if (!res) return res.error();
+        window_.emplace(std::move(res.value()));
+        return {};
+    }
+
+    // Constructs the Audio device this Context owns. Only valid to call
+    // when has(Capability::Audio) is true. Audio device unavailability
+    // (as opposed to the capability not being requested at all) is a
+    // degraded, non-fatal condition by convention — see
+    // docs/runtime-architecture.md §2's failure-recovery classification —
+    // so callers should treat a failing Result here as a warning, not an
+    // abort, unless the project specifically requires audio.
+    gameak::core::Result<void> create_audio() {
+        auto res = Audio::create();
+        if (!res) return res.error();
+        audio_.emplace(std::move(res.value()));
+        return {};
+    }
+
+    [[nodiscard]] Window* window() { return window_ ? &*window_ : nullptr; }
+    [[nodiscard]] Audio* audio() { return audio_ ? &*audio_ : nullptr; }
+
 private:
-    Context() = default;
+    explicit Context(SDL_InitFlags flags) : flags_(flags) {}
+
+    SDL_InitFlags flags_{0};
+    std::optional<Window> window_;
+    std::optional<Audio> audio_;
 };
 
 } // namespace seed

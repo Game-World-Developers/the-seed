@@ -351,15 +351,52 @@ Every section above states a decision; the following are the concrete,
 file-grounded fixes Phase 7 needs to make against the current scaffold
 templates, in rough priority order (later items depend on earlier ones):
 
-1. Fix the fixed-step/variable-dt inconsistency in `main.cpp.tmpl` (§5) —
-   the most immediately visible bug, affecting both existing modes.
+1. ~~Fix the fixed-step/variable-dt inconsistency in `main.cpp.tmpl` (§5)~~
+   **Done.** `main.cpp.tmpl` now runs a single accumulator-driven loop
+   (`accumulator += frame_dt; while (accumulator >= fixed_dt) { rt.tick(fixed_dt); ...}`)
+   in every mode — `rt.tick` is always called with the constant `fixed_dt`,
+   never a measured frame delta, matching §5 exactly. Verified by actually
+   building all three modes with xmake against the pinned GameAK revision
+   and real SDL3 packages (`tests/project_mode_test.go`'s
+   `TestScaffoldModesCompile`, opt-in).
 2. Extract an Application-layer loop type instead of inline `main()` logic
-   (§1, §2).
-3. Add the extraction step so Presentation stops reading GameAK block
-   storage directly (§4).
+   (§1, §2). **Still open** — the loop body was fixed in place; pulling it
+   out into an owned `Application` type is unchanged.
+3. ~~Add the extraction step so Presentation stops reading GameAK block
+   storage directly (§4)~~ **Done for the 3D demo path.**
+   `extract_render_list()` in `main.cpp.tmpl` is now the one place per
+   frame that calls `rt.get_block`; the render loop below it only touches
+   the plain `seed::QuadDesc` values that function returns. `Renderer3D`'s
+   API was already shaped this way (`draw_quad` only ever took a value
+   struct); the fix was separating the *call site* that reads GameAK state
+   from the *call site* that renders, which were previously interleaved in
+   one loop.
 4. Route SDL input events through a per-frame `InputState` snapshot
-   instead of ad hoc local-variable mutation (§3).
-5. Turn `Context` into the composition root (§7) and add the `Capability`
-   set (§8), including the `--mode headless` project variant (§10).
-6. Add `Seed::Log` and the tick-boundary exception boundary (§9).
-7. Add the background-job queue for asset loading (§6).
+   instead of ad hoc local-variable mutation (§3). **Still open** —
+   `main.cpp.tmpl`'s event switch still mutates local demo variables
+   directly; no `InputState` type exists yet.
+5. ~~Turn `Context` into the composition root (§7) and add the `Capability`
+   set (§8), including the `--mode headless` project variant (§10)~~
+   **Done, within a documented boundary.** `seed-context.hpp.tmpl` now
+   defines `Capability` (mapping directly to `SDL_InitFlags`) and `Context`
+   owns `Window`/`Audio` once created through `create_window`/
+   `create_audio` — `main.cpp.tmpl` no longer constructs them as
+   independent locals. `Renderer` is **not** yet owned by `Context`
+   (documented in the header's own doc comment as an open boundary — it's
+   templated on project mode, and Context has no reason to know which
+   Renderer type a given project uses). `--mode headless` is implemented
+   end-to-end: `project.validateMode` rejects anything else, scaffolding
+   skips the image/font/asset-manager/renderer templates and their SDL3
+   packages entirely, and the generated `main()` requests zero SDL
+   capabilities, runs the same fixed-step accumulator against a real wall
+   clock, and shuts down on `SIGINT`/`SIGTERM` instead of `SDL_EVENT_QUIT`
+   — verified compiling and linking against the pinned GameAK revision.
+6. Add `Seed::Log` and the tick-boundary exception boundary (§9). **Still
+   open.**
+7. Add the background-job queue for asset loading (§6). **Still open.**
+
+Items 1, 3, and 5 were fixed in a Phase 7 pass scoped specifically to
+these concrete, already-diagnosed gaps (agreed with the user rather than
+attempting Phase 7's full 12-item checklist at once — see `TODO.md`'s
+Phase 7 section for what remains). Items 2, 4, 6, and 7 are unchanged from
+when this document was written and remain open.

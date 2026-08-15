@@ -1,8 +1,6 @@
 #include <GameAk/Runtime/runtime.h>
 #include <SDL3/SDL.h>
-#include <Seed/audio.hpp>
 #include <Seed/context.hpp>
-#include <Seed/window.hpp>
 #include "Game/bootstrap.hpp"
 #include <cstdio>
 {{if eq .Mode "3d"}}
@@ -11,13 +9,30 @@
 #include <cmath>
 #include <vector>
 using Renderer = seed::Renderer3D;
-{{else}}
+{{else if eq .Mode "2d"}}
 #include <Seed/renderer_2d.hpp>
 using Renderer = seed::Renderer2D;
+{{else}}
+#include <csignal>
 {{end}}
 
+// ── Fixed-step / variable-rate presentation ─────────────────────────
+//
+// docs/runtime-architecture.md §5: the simulation always ticks with the
+// constant fixed_dt below, never a measured per-frame delta — this is
+// what makes gameak::runtime::Runtime::tick deterministic. Rendering (for
+// graphical modes) happens once per real frame regardless of how many
+// fixed steps ran that frame. kMaxFrameDt clamps a stalled frame (e.g. a
+// breakpoint or OS hitch) so the accumulator can't try to "catch up" with
+// an unbounded burst of steps.
 static constexpr float kMinDt = 1.0f / 240.0f;
 static constexpr float kMaxFrameDt = 0.1f;
+{{if eq .Mode "headless"}}
+static constexpr float kHeadlessTickRate = 60.0f;
+
+static volatile std::sig_atomic_t gShouldStop = 0;
+static void handle_shutdown_signal(int) { gShouldStop = 1; }
+{{end}}
 
 {{if eq .Mode "3d"}}
 struct Orbiter {
@@ -31,8 +46,32 @@ static constexpr SDL_FColor kPalette[] = {
     {1,0,0,1},{0,1,0,1},{0,0,1,1},{1,1,0,1},{0,1,1,1},
     {1,0,1,1},{0.5f,0,0,1},{0,0.5f,0,1},{0,0,0.5f,1},{0.5f,0.5f,0,1},
 };
+
+// ── Extraction: simulation state -> presentation ────────────────────
+//
+// docs/runtime-architecture.md §4: the Renderer never reads GameAK block
+// storage itself (seed::Renderer3D::draw_quad already only takes a plain
+// QuadDesc value struct). This function is the one place per frame that
+// reads gameak::runtime::Runtime block state; its output is plain data
+// the render loop below consumes with no further GameAK calls.
+static std::vector<seed::QuadDesc> extract_render_list(
+    gameak::runtime::Runtime<>& rt,
+    const std::vector<Orbiter>& orbiters)
+{
+    std::vector<seed::QuadDesc> out;
+    out.reserve(orbiters.size());
+    for (const auto& o : orbiters) {
+        auto* block = rt.get_block(o.id);
+        if (!block) continue;
+        float sx = 400.f + block->field<float>(offsetof(Core::Position, x)) - 20.f;
+        float sy = 300.f + block->field<float>(offsetof(Core::Position, y)) - 20.f;
+        out.push_back(seed::QuadDesc{sx, sy, 40.f, 40.f, o.color});
+    }
+    return out;
+}
 {{end}}
 
+{{if ne .Mode "headless"}}
 static float detect_refresh_rate() {
     SDL_DisplayID display = SDL_GetPrimaryDisplay();
     if (!display) return 60.0f;
@@ -40,36 +79,50 @@ static float detect_refresh_rate() {
     if (!mode || mode->refresh_rate <= 0) return 60.0f;
     return mode->refresh_rate;
 }
+{{end}}
 
 int main() {
+{{if ne .Mode "headless"}}
     SDL_SetHint(SDL_HINT_RENDER_VSYNC, "1");
     SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
 
     auto ctx_res = seed::Context::create(
         SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD |
         SDL_INIT_HAPTIC | SDL_INIT_SENSOR);
+{{else}}
+    // Headless: no Capability requested needs Video/Audio/input devices —
+    // see docs/runtime-architecture.md §8/§10. SDL is still initialized
+    // (with zero subsystems) so Context's portable timing facilities work
+    // the same way they do in the graphical modes.
+    std::signal(SIGINT, handle_shutdown_signal);
+    std::signal(SIGTERM, handle_shutdown_signal);
+
+    auto ctx_res = seed::Context::create(0);
+{{end}}
     if (!ctx_res) {
         SDL_Log("Context::create failed: %s", ctx_res.error().message().data());
         return 1;
     }
+    auto& ctx = ctx_res.value();
 
-    SDL_WindowFlags win_flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    auto win_res = seed::Window::create("{{.Name}}", 1280, 720, win_flags);
-    if (!win_res) {
-        SDL_Log("Window::create failed: %s", win_res.error().message().data());
+{{if ne .Mode "headless"}}
+    if (auto res = ctx.create_window(
+            "{{.Name}}", 1280, 720,
+            SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+        !res) {
+        SDL_Log("Window::create failed: %s", res.error().message().data());
         return 1;
     }
 
-    auto audio_res = seed::Audio::create();
-    if (!audio_res) {
+    if (auto res = ctx.create_audio(); !res) {
         SDL_Log("Warning: Audio unavailable (continuing without audio): %s",
-                audio_res.error().message().data());
+                res.error().message().data());
     }
 
     SDL_Gamepad* gamepads[8]{};
     int gamepad_count = 0;
 
-    auto ren_res = Renderer::create(win_res.value());
+    auto ren_res = Renderer::create(*ctx.window());
     if (!ren_res) {
         SDL_Log("Renderer::create failed: %s", ren_res.error().message().data());
         return 1;
@@ -80,6 +133,9 @@ int main() {
     float refresh_rate = detect_refresh_rate();
     float fixed_dt = 1.0f / refresh_rate;
     if (fixed_dt < kMinDt) fixed_dt = kMinDt;
+{{else}}
+    float fixed_dt = 1.0f / kHeadlessTickRate;
+{{end}}
 
     auto rt = gameak::runtime::Runtime<>::configure().build();
     rt.set_fixed_timestep(fixed_dt);
@@ -125,17 +181,24 @@ int main() {
     float speed      = 0.5f;
     float radius     = 60.f;
     float elapsed    = 0;
+{{end}}
+{{if ne .Mode "headless"}}
     Uint64 last      = SDL_GetPerformanceCounter();
     int frame_count  = 0;
     float fps_accum  = 0;
     char title[128];
+{{else}}
+    Uint64 last = SDL_GetPerformanceCounter();
+{{end}}
+    float accumulator = 0.0f;
     bool running     = true;
 
+{{if ne .Mode "headless"}}
     while (running) {
         Uint64 now = SDL_GetPerformanceCounter();
-        float dt = (now - last) / (float)SDL_GetPerformanceFrequency();
+        float frame_dt = (now - last) / (float)SDL_GetPerformanceFrequency();
         last = now;
-        if (dt > kMaxFrameDt) dt = kMaxFrameDt;
+        if (frame_dt > kMaxFrameDt) frame_dt = kMaxFrameDt;
 
         // ── Event processing ─────────────────────────────────────────
         SDL_Event event;
@@ -144,6 +207,7 @@ int main() {
             case SDL_EVENT_QUIT:
                 running = false;
                 break;
+{{if eq .Mode "3d"}}
             case SDL_EVENT_KEY_DOWN:
                 switch (event.key.key) {
                 case SDLK_ESCAPE: running = false; break;
@@ -158,6 +222,7 @@ int main() {
                 default: break;
                 }
                 break;
+{{end}}
             case SDL_EVENT_GAMEPAD_ADDED:
                 if (gamepad_count < 8) {
                     gamepads[gamepad_count++] = SDL_OpenGamepad(event.gdevice.which);
@@ -178,8 +243,9 @@ int main() {
             }
         }
 
+{{if eq .Mode "3d"}}
         // ── Game logic: controllers execute here ─────────────────────
-        elapsed += dt;
+        elapsed += frame_dt;
 
         // Direct entity manipulation (for template demo; real games
         // should use controllers for all logic):
@@ -192,64 +258,64 @@ int main() {
             rt.submit_command(gameak::runtime::Command::set_field<float>(
                 o.id, offsetof(Core::Position, y), py));
         }
+{{end}}
 
-        rt.tick(dt);
+        // ── Fixed-step simulation ─────────────────────────────────────
+        accumulator += frame_dt;
+        while (accumulator >= fixed_dt) {
+            rt.tick(fixed_dt);
+            accumulator -= fixed_dt;
+        }
 
-        // ── Render: read blocks from Runtime (not from StateView) ────
+{{if eq .Mode "3d"}}
+        // ── Extraction, then render (Renderer never touches rt) ───────
+        auto render_list = extract_render_list(rt, orbiters);
         renderer.begin_frame({0.1f, 0.1f, 0.1f, 1.0f});
-        for (auto& o : orbiters) {
-            auto* block = rt.get_block(o.id);
-            if (!block) continue;
-            float sx = 400.f + block->field<float>(offsetof(Core::Position, x)) - 20.f;
-            float sy = 300.f + block->field<float>(offsetof(Core::Position, y)) - 20.f;
-            renderer.draw_quad({sx, sy, 40.f, 40.f, o.color});
+        for (const auto& qd : render_list) {
+            renderer.draw_quad(qd);
         }
         renderer.end_frame();
+{{else}}
+        renderer.clear({0.1f, 0.1f, 0.1f, 1.0f});
+        renderer.present();
+{{end}}
 
         frame_count++;
-        fps_accum += dt;
+        fps_accum += frame_dt;
         if (fps_accum >= 0.5f) {
             float fps = frame_count / fps_accum;
+{{if eq .Mode "3d"}}
             std::snprintf(title, sizeof(title),
                 "{{.Name}} [%.0f FPS | speed %.1f radius %.0f]", fps, speed, radius);
-            SDL_SetWindowTitle(win_res.value().get(), title);
+{{else}}
+            std::snprintf(title, sizeof(title), "{{.Name}} [%.0f FPS]", fps);
+{{end}}
+            SDL_SetWindowTitle(ctx.window()->get(), title);
             frame_count = 0;
             fps_accum = 0;
         }
     }
 {{else}}
-    bool running = true;
+    // Headless: same fixed-step accumulator as the graphical modes, no
+    // window/input to poll — the loop ends on SIGINT/SIGTERM instead of
+    // SDL_EVENT_QUIT (docs/runtime-architecture.md §10's "same lifecycle,
+    // no extraction/render/audio stage" decision).
+    while (running && !gShouldStop) {
+        Uint64 now = SDL_GetPerformanceCounter();
+        float frame_dt = (now - last) / (float)SDL_GetPerformanceFrequency();
+        last = now;
+        if (frame_dt > kMaxFrameDt) frame_dt = kMaxFrameDt;
 
-    while (running) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-            case SDL_EVENT_QUIT:
-                running = false;
-                break;
-            case SDL_EVENT_GAMEPAD_ADDED:
-                if (gamepad_count < 8) {
-                    gamepads[gamepad_count++] = SDL_OpenGamepad(event.gdevice.which);
-                }
-                break;
-            case SDL_EVENT_GAMEPAD_REMOVED:
-                for (int i = 0; i < gamepad_count; i++) {
-                    if (SDL_GetGamepadID(gamepads[i]) == event.gdevice.which) {
-                        SDL_CloseGamepad(gamepads[i]);
-                        gamepads[i] = gamepads[--gamepad_count];
-                        gamepads[gamepad_count] = nullptr;
-                        break;
-                    }
-                }
-                break;
-            default:
-                break;
-            }
+        accumulator += frame_dt;
+        bool ticked = false;
+        while (accumulator >= fixed_dt) {
+            rt.tick(fixed_dt);
+            accumulator -= fixed_dt;
+            ticked = true;
         }
-
-        rt.tick(fixed_dt);
-        renderer.clear({0.1f, 0.1f, 0.1f, 1.0f});
-        renderer.present();
+        if (!ticked) {
+            SDL_Delay(1);
+        }
     }
 {{end}}
 
