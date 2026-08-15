@@ -55,6 +55,26 @@ type CompileResult struct {
 	Models      []Model
 	Entries     []ModelEntry
 	Diagnostics []Diagnostic
+
+	resolver *symbolTable
+}
+
+// ResolveRef looks up the namespace that satisfies a (refType, name)
+// reference, using the same project-wide symbol table Compile validated
+// against. It lets downstream tooling (e.g. the IR builder) turn a
+// possibly-unqualified ModelRef into a fully qualified one without
+// re-implementing resolution. It only returns ok=true for references that
+// were valid at compile time — callers should not call this when
+// HasErrors() is true, since some references may be unresolved.
+func (r *CompileResult) ResolveRef(refType, name, explicitNamespace string) (namespace string, ok bool) {
+	if r.resolver == nil {
+		return "", false
+	}
+	ns, cause := r.resolver.resolve(refType, name, explicitNamespace)
+	if cause != nil {
+		return "", false
+	}
+	return ns, true
 }
 
 // HasErrors reports whether any diagnostic is Error-level.
@@ -290,7 +310,7 @@ func Compile() (*CompileResult, error) {
 		return a.Location.Field < b.Location.Field
 	})
 
-	result := &CompileResult{Entries: entries, Diagnostics: c.diagnostics}
+	result := &CompileResult{Entries: entries, Diagnostics: c.diagnostics, resolver: c.table}
 	for _, d := range models {
 		result.Models = append(result.Models, d.model)
 	}

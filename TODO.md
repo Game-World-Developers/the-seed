@@ -132,16 +132,40 @@ facilities, tooling, and generated glue that make them work as one SDK.
 
 ## Phase 3: Create an inspectable IR
 
-- [ ] Design a versioned intermediate representation between Seed semantics and
-  backend generation.
-- [ ] Represent storage requirements, identities, queries, commands, events,
-  schedules, and registration in the IR.
-- [ ] Ensure the IR contains resolved references rather than YAML strings.
-- [ ] Make IR output stable and deterministic for tests and tooling.
-- [ ] Add `seed compile` to validate models and produce the IR without generating
-  C++.
-- [ ] Add an optional machine-readable IR output for editor and CI integration.
-- [ ] Define compatibility and migration rules for future IR versions.
+- [x] Design a versioned intermediate representation between Seed semantics and
+  backend generation. (`internal/ir`: `IR` built by `ir.Build` from a
+  `generators.CompileResult`, independent of both YAML and any GameAK/SDL3
+  backend type)
+- [x] Represent storage requirements, identities, queries, commands, events,
+  schedules, and registration in the IR. (identities via `Ref`; storage
+  requirements as `Entity.Components`, the deduplicated resolved component
+  set reachable through traits; queries as `System.Entities`/`Access`;
+  events as `Event`/`StateMachine.Events`; schedule as `IR.Schedule`.
+  **Partial:** `System.Emits` is reserved for Commands but always empty —
+  Commands don't exist until Phase 6 (Cardinal) defines them, so there's
+  nothing yet to represent. Registration mechanics (C++ header includes,
+  `register_*` calls) are deliberately *not* in the IR — they're
+  GameAK-backend generation detail, and the IR's job is to stay backend-
+  independent; `IR.Schedule` carries the registration/execution *order*
+  the backend needs, which is the semantic part)
+- [x] Ensure the IR contains resolved references rather than YAML strings.
+  (every `Ref` carries a resolved `Namespace`, obtained via
+  `CompileResult.ResolveRef`; `Build` refuses to run when the compile result
+  has errors, so an IR is never built from unresolved references)
+- [x] Make IR output stable and deterministic for tests and tooling.
+  (`sortAll` orders every top-level slice by (namespace, name);
+  `buildSchedule` breaks priority ties by qualified name; verified in
+  `tests/ir_test.go`'s "output is deterministic across repeated builds")
+- [x] Add `seed compile` to validate models and produce the IR without generating
+  C++. (`internal/commands/compile.go`; verified in `tests/commands_test.go`
+  that it writes no `Include/` output, unlike `sync`)
+- [x] Add an optional machine-readable IR output for editor and CI integration.
+  (`seed compile --json`, indented JSON via `json` struct tags on every IR
+  type)
+- [x] Define compatibility and migration rules for future IR versions.
+  (`ir.Version` + semver bump rule documented on the constant: patch for
+  docs-only changes, minor for additive fields, major for breaking changes;
+  tooling should reject an unrecognized major version rather than guess)
 
 ## Phase 4: Define the Seed runtime architecture
 

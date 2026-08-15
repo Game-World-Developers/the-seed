@@ -145,6 +145,72 @@ func TestCommandsBinary(t *testing.T) {
 			t.Fatalf("expected 'create', got: %s", out)
 		}
 	})
+
+	t.Run("compile validates and prints the IR without touching Include/", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "compile-project")
+		if err := os.MkdirAll(projDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		gen := exec.Command(binPath, "model", "generate", "component", "Position")
+		gen.Dir = projDir
+		if out, err := gen.CombinedOutput(); err != nil {
+			t.Fatalf("model generate failed: %v\n%s", err, out)
+		}
+
+		cmd := exec.Command(binPath, "compile")
+		cmd.Dir = projDir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("compile failed: %v\n%s", err, out)
+		}
+		if !contains(string(out), "Compiled OK") {
+			t.Fatalf("expected 'Compiled OK', got: %s", out)
+		}
+		if _, statErr := os.Stat(filepath.Join(projDir, "Include")); !os.IsNotExist(statErr) {
+			t.Fatal("expected 'compile' to not create any Include/ output")
+		}
+
+		jsonCmd := exec.Command(binPath, "compile", "--json")
+		jsonCmd.Dir = projDir
+		jsonOut, err := jsonCmd.Output()
+		if err != nil {
+			t.Fatalf("compile --json failed: %v", err)
+		}
+		if !contains(string(jsonOut), `"version"`) || !contains(string(jsonOut), `"Position"`) {
+			t.Fatalf("expected JSON IR containing version and Position, got: %s", jsonOut)
+		}
+	})
+
+	t.Run("compile fails on semantic errors without writing output", func(t *testing.T) {
+		projDir := filepath.Join(tmpDir, "compile-error-project")
+		if err := os.MkdirAll(filepath.Join(projDir, "Models", "Trait"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(projDir, ".seed_project"), []byte{}, 0644); err != nil {
+			t.Fatal(err)
+		}
+		badTrait := "type: trait\nname: Movable\nnamespace: Core\ncomponents:\n  - DoesNotExist\n"
+		if err := os.WriteFile(filepath.Join(projDir, "Models", "Trait", "Movable.yaml"), []byte(badTrait), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		cmd := exec.Command(binPath, "compile")
+		cmd.Dir = projDir
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Fatalf("expected compile to fail, got: %s", out)
+		}
+		if !contains(string(out), "missing component") {
+			t.Fatalf("expected diagnostic about missing component, got: %s", out)
+		}
+		if _, statErr := os.Stat(filepath.Join(projDir, "Include")); !os.IsNotExist(statErr) {
+			t.Fatal("expected no Include/ output when compile fails")
+		}
+	})
 }
 
 func TestDoctorChecks(t *testing.T) {
