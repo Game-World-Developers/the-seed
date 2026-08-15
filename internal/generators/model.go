@@ -135,14 +135,70 @@ type ArchetypeModel struct {
 	Entity    ModelRef `yaml:"entity"`
 }
 
+// GuardDef is a composable guard condition for a transition: exactly one
+// of Name (a named, game-defined C++ guard extension point — see
+// docs/cardinal.md's guard-purity contract), All, Any, or Not may be set.
+// Guards are read-only by contract: they may inspect state but must not
+// mutate it or produce side effects (docs/cardinal.md).
+type GuardDef struct {
+	Name string      `yaml:"name,omitempty"`
+	All  []*GuardDef `yaml:"all,omitempty"`
+	Any  []*GuardDef `yaml:"any,omitempty"`
+	Not  *GuardDef   `yaml:"not,omitempty"`
+}
+
+// Kind reports which of Name/All/Any/Not this guard uses, or "" if none or
+// more than one is set (an invalid guard — see the semantic compiler's
+// validateGuard).
+func (g *GuardDef) Kind() string {
+	set := 0
+	kind := ""
+	if g.Name != "" {
+		set++
+		kind = "name"
+	}
+	if len(g.All) > 0 {
+		set++
+		kind = "all"
+	}
+	if len(g.Any) > 0 {
+		set++
+		kind = "any"
+	}
+	if g.Not != nil {
+		set++
+		kind = "not"
+	}
+	if set != 1 {
+		return ""
+	}
+	return kind
+}
+
 type TransitionDef struct {
-	Target string `yaml:"target"`
-	Event  string `yaml:"event"`
+	Target   string    `yaml:"target"`
+	Event    string    `yaml:"event"`
+	Priority int       `yaml:"priority,omitempty"`
+	Guard    *GuardDef `yaml:"guard,omitempty"`
+	// Emits declares the Events this transition's actions may produce as
+	// resulting events (docs/cardinal.md's decision lifecycle). Seed has
+	// no Command model type yet (docs/gameak-mapping.md §3 notes GameAK
+	// already has the primitives Commands would compile to); Emits is the
+	// part of "emitted commands" that's meaningful to declare and validate
+	// today — which events a transition can cause — without inventing a
+	// full Command schema ahead of a concrete need for one.
+	Emits []ModelRef `yaml:"emits,omitempty"`
 }
 
 type StateDef struct {
 	Name        string          `yaml:"name"`
 	Transitions []TransitionDef `yaml:"transitions"`
+	// Entry/Exit are named, game-defined C++ action extension points run
+	// when the state is entered/exited. Per docs/cardinal.md's action
+	// contract, actions may only express effects by producing typed
+	// Commands/events — they never mutate state directly.
+	Entry []string `yaml:"entry,omitempty"`
+	Exit  []string `yaml:"exit,omitempty"`
 }
 
 type StateMachineModel struct {
@@ -179,17 +235,17 @@ type BlockFaceColors struct {
 }
 
 type BlockModel struct {
-	Type         string           `yaml:"type"`
-	Name         string           `yaml:"name"`
-	Namespace    string           `yaml:"namespace"`
-	TileIndex    uint8            `yaml:"tile_index"`
-	Colors       BlockFaceColors  `yaml:"colors,omitempty"`
-	Solid        bool             `yaml:"solid"`
-	Transparent  bool             `yaml:"transparent"`
-	Fluid        bool             `yaml:"fluid,omitempty"`
-	Hardness     float64          `yaml:"hardness"`
-	Drop         string           `yaml:"drop"`
-	AtlasPath    string           `yaml:"atlas_path,omitempty"`
+	Type        string          `yaml:"type"`
+	Name        string          `yaml:"name"`
+	Namespace   string          `yaml:"namespace"`
+	TileIndex   uint8           `yaml:"tile_index"`
+	Colors      BlockFaceColors `yaml:"colors,omitempty"`
+	Solid       bool            `yaml:"solid"`
+	Transparent bool            `yaml:"transparent"`
+	Fluid       bool            `yaml:"fluid,omitempty"`
+	Hardness    float64         `yaml:"hardness"`
+	Drop        string          `yaml:"drop"`
+	AtlasPath   string          `yaml:"atlas_path,omitempty"`
 }
 
 type SystemModel struct {
@@ -324,6 +380,9 @@ func (m *StateMachineModel) Resolve(reg *ModelRegistry) error {
 		}
 		m.Events[i] = ref
 	}
+	if err := resolveTransitionEmits(reg, m.Name, m.States); err != nil {
+		return err
+	}
 	for pi, p := range m.Parts {
 		if p.Entity.Name != "" {
 			ref, err := reg.Resolve("entity", p.Entity.Name)
@@ -331,6 +390,24 @@ func (m *StateMachineModel) Resolve(reg *ModelRegistry) error {
 				return fmt.Errorf("state_machine %q part %q: %w", m.Name, p.Name, err)
 			}
 			m.Parts[pi].Entity = ref
+		}
+		if err := resolveTransitionEmits(reg, m.Name+"."+p.Name, p.States); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveTransitionEmits(reg *ModelRegistry, machineName string, states []StateDef) error {
+	for si, s := range states {
+		for ti, t := range s.Transitions {
+			for ei, ev := range t.Emits {
+				ref, err := reg.Resolve("event", ev.Name)
+				if err != nil {
+					return fmt.Errorf("state_machine %q transition %s->%s: %w", machineName, s.Name, t.Target, err)
+				}
+				states[si].Transitions[ti].Emits[ei] = ref
+			}
 		}
 	}
 	return nil

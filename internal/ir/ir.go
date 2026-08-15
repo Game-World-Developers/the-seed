@@ -88,6 +88,36 @@ type Archetype struct {
 	Entity Ref `json:"entity"`
 }
 
+// Guard is a composable, resolved guard condition — a direct mirror of
+// generators.GuardDef. Kind is exactly one of "name", "all", "any", "not";
+// Build refuses to run over an IR whose guards don't already satisfy that
+// (generators.Compile validates guard structure before Build ever runs).
+// Per docs/cardinal.md's guard-purity contract, a Guard is read-only by
+// construction: nothing in this type or generators.GuardDef lets a guard
+// express a mutation.
+type Guard struct {
+	Kind string   `json:"kind"`
+	Name string   `json:"name,omitempty"`
+	All  []*Guard `json:"all,omitempty"`
+	Any  []*Guard `json:"any,omitempty"`
+	Not  *Guard   `json:"not,omitempty"`
+}
+
+func convertGuard(g *generators.GuardDef) *Guard {
+	if g == nil {
+		return nil
+	}
+	out := &Guard{Kind: g.Kind(), Name: g.Name}
+	for _, child := range g.All {
+		out.All = append(out.All, convertGuard(child))
+	}
+	for _, child := range g.Any {
+		out.Any = append(out.Any, convertGuard(child))
+	}
+	out.Not = convertGuard(g.Not)
+	return out
+}
+
 // Transition is a resolved state-machine transition. Event is set only
 // when the transition's event string matched one of the machine's declared
 // Events; EventName always carries the raw string. This mirrors the known
@@ -95,15 +125,38 @@ type Archetype struct {
 // plain strings in YAML, not typed ModelRefs, so a transition can name an
 // event the IR cannot resolve even though Compile's state validation
 // already guarantees Target names an existing state.
+//
+// Priority and Guard are Cardinal's deterministic-conflict-resolution
+// inputs (docs/cardinal.md): among transitions matching the same Event
+// from the same State, generators.Compile already guarantees no two share
+// a Priority, so the highest-Priority transition whose Guard (if any)
+// passes is always an unambiguous winner — never a YAML-declaration-order
+// tiebreak.
 type Transition struct {
 	EventName string `json:"event_name"`
 	Event     *Ref   `json:"event,omitempty"`
 	Target    string `json:"target"`
+	Priority  int    `json:"priority"`
+	Guard     *Guard `json:"guard,omitempty"`
+	// Emits is the resolved set of Events this transition's actions may
+	// produce as resulting events — the part of "emitted commands"
+	// (docs/cardinal.md) meaningful to declare without a full Command
+	// schema; see generators.TransitionDef.Emits's doc comment.
+	Emits []Ref `json:"emits"`
 }
 
+// State is a resolved FSM state. Entry/Exit are the named C++ action
+// extension points run on entering/leaving this state. Per
+// docs/cardinal.md's action contract, they may only express effects by
+// producing typed Commands/events — never by mutating state directly —
+// but the IR itself only carries the *names*; enforcing the contract is a
+// property of the (currently hand-written) C++ implementation behind each
+// name, not something Seed's tooling can verify statically yet.
 type State struct {
 	Name        string       `json:"name"`
 	Transitions []Transition `json:"transitions"`
+	Entry       []string     `json:"entry"`
+	Exit        []string     `json:"exit"`
 }
 
 type StateMachine struct {
@@ -272,14 +325,22 @@ func Build(compiled *generators.CompileResult) (*IR, error) {
 			for _, s := range v.States {
 				var transitions []Transition
 				for _, t := range s.Transitions {
-					tr := Transition{EventName: t.Event, Target: t.Target}
+					tr := Transition{EventName: t.Event, Target: t.Target, Priority: t.Priority, Guard: convertGuard(t.Guard), Emits: []Ref{}}
 					if declared[t.Event] {
 						resolved := resolveRef(compiled, "event", generators.ModelRef{Name: t.Event})
 						tr.Event = &resolved
 					}
+					for _, emit := range t.Emits {
+						tr.Emits = append(tr.Emits, resolveRef(compiled, "event", emit))
+					}
 					transitions = append(transitions, tr)
 				}
-				states = append(states, State{Name: s.Name, Transitions: transitions})
+				states = append(states, State{
+					Name:        s.Name,
+					Transitions: transitions,
+					Entry:       append([]string{}, s.Entry...),
+					Exit:        append([]string{}, s.Exit...),
+				})
 			}
 			out.StateMachines = append(out.StateMachines, StateMachine{
 				Ref:      Ref{"state_machine", v.Name, v.Namespace},

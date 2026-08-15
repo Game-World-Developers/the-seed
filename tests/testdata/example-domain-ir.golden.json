@@ -156,9 +156,13 @@
                 "name": "StartMoveEvent",
                 "namespace": "Core"
               },
-              "target": "Running"
+              "target": "Running",
+              "priority": 0,
+              "emits": []
             }
-          ]
+          ],
+          "entry": [],
+          "exit": []
         },
         {
           "name": "Running",
@@ -170,9 +174,13 @@
                 "name": "StopMoveEvent",
                 "namespace": "Core"
               },
-              "target": "Idle"
+              "target": "Idle",
+              "priority": 0,
+              "emits": []
             }
-          ]
+          ],
+          "entry": [],
+          "exit": []
         }
       ],
       "events": [

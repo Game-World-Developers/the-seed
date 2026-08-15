@@ -337,11 +337,88 @@ func (c *compiler) validateStates(e ModelEntry, machineName, initial string, sta
 		c.errorf(e, field, "initial state %q is not one of the declared states in state machine %q", initial, machineName)
 	}
 	for _, s := range states {
-		for _, t := range s.Transitions {
+		// byEventPriority groups this state's transitions by (Event, Priority)
+		// to detect ambiguous conflicts: two transitions for the same event
+		// at the same priority have no deterministic winner. Per
+		// docs/cardinal.md's conflict-resolution decision, Seed refuses to
+		// let YAML declaration order silently break the tie — the author
+		// must assign distinct priorities instead.
+		byEventPriority := map[string]map[int]int{}
+		for ti, t := range s.Transitions {
 			if t.Target != "" && !declared[t.Target] {
 				c.errorf(e, field, "transition from %q targets undeclared state %q in state machine %q", s.Name, t.Target, machineName)
 			}
+			if t.Guard != nil {
+				c.validateGuard(e, t.Guard, fmt.Sprintf("%s[%d].transitions[%d].guard", field, indexOf(states, s), ti))
+			}
+			for _, ref := range t.Emits {
+				c.checkRef(e, "event", fmt.Sprintf("%s[%d].transitions[%d].emits", field, indexOf(states, s), ti), ref)
+			}
+			if byEventPriority[t.Event] == nil {
+				byEventPriority[t.Event] = map[int]int{}
+			}
+			byEventPriority[t.Event][t.Priority]++
 		}
+		for event, byPriority := range byEventPriority {
+			for priority, count := range byPriority {
+				if count > 1 {
+					c.errorf(e, field,
+						"state %q has %d transitions for event %q at priority %d in state machine %q; assign distinct priorities to make the winner deterministic instead of relying on YAML declaration order",
+						s.Name, count, event, priority, machineName)
+				}
+			}
+		}
+	}
+	for _, s := range states {
+		c.validateActionNames(e, s.Entry, fmt.Sprintf("%s[%s].entry", field, s.Name))
+		c.validateActionNames(e, s.Exit, fmt.Sprintf("%s[%s].exit", field, s.Name))
+	}
+}
+
+func indexOf(states []StateDef, target StateDef) int {
+	for i, s := range states {
+		if s.Name == target.Name {
+			return i
+		}
+	}
+	return -1
+}
+
+// validateGuard checks that a GuardDef uses exactly one of Name/All/Any/Not
+// (GuardDef.Kind returning "" means zero or more than one was set), that
+// All/Any have at least one child, and recurses into composite guards.
+func (c *compiler) validateGuard(e ModelEntry, g *GuardDef, field string) {
+	switch g.Kind() {
+	case "":
+		c.errorf(e, field, "guard must set exactly one of name, all, any, or not")
+	case "name":
+		// leaf guard, nothing further to check structurally
+	case "all":
+		for i, child := range g.All {
+			c.validateGuard(e, child, fmt.Sprintf("%s.all[%d]", field, i))
+		}
+	case "any":
+		for i, child := range g.Any {
+			c.validateGuard(e, child, fmt.Sprintf("%s.any[%d]", field, i))
+		}
+	case "not":
+		c.validateGuard(e, g.Not, field+".not")
+	}
+}
+
+// validateActionNames checks that every entry/exit action name is
+// non-empty and has no duplicates within the same state.
+func (c *compiler) validateActionNames(e ModelEntry, names []string, field string) {
+	seen := map[string]bool{}
+	for _, n := range names {
+		if n == "" {
+			c.errorf(e, field, "action name must not be empty")
+			continue
+		}
+		if seen[n] {
+			c.errorf(e, field, "action %q is declared more than once", n)
+		}
+		seen[n] = true
 	}
 }
 

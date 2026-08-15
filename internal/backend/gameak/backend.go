@@ -69,6 +69,7 @@ func (backend) Validate(model *ir.IR) []Diagnostic {
 	var diags []Diagnostic
 	diags = append(diags, checkBareNameCollisions(model)...)
 	diags = append(diags, checkEventSupport(model)...)
+	diags = append(diags, checkCardinalSupport(model)...)
 	sort.SliceStable(diags, func(i, j int) bool {
 		return diags[i].Ref.Qualified() < diags[j].Ref.Qualified()
 	})
@@ -163,4 +164,56 @@ func checkEventSupport(model *ir.IR) []Diagnostic {
 		})
 	}
 	return diags
+}
+
+// checkCardinalSupport warns about state machines that use the Cardinal
+// schema fields (docs/cardinal.md: transition Priority/Guard, state
+// Entry/Exit actions) that generators.Compile fully validates but that
+// state_machine.hpp.tmpl does not generate C++ for yet. Silently dropping
+// a validated guard or action during generation would be exactly the
+// "silent degradation" Phase 5 established diagnostics to prevent — the
+// fields are accepted and IR-resolved today so tooling (seed inspect,
+// seed explain) can already work against them, but they have no runtime
+// effect until the template is extended.
+func checkCardinalSupport(model *ir.IR) []Diagnostic {
+	var diags []Diagnostic
+	for _, sm := range model.StateMachines {
+		var used []string
+		for _, s := range sm.States {
+			if len(s.Entry) > 0 {
+				used = append(used, fmt.Sprintf("state %q entry actions", s.Name))
+			}
+			if len(s.Exit) > 0 {
+				used = append(used, fmt.Sprintf("state %q exit actions", s.Name))
+			}
+			for _, t := range s.Transitions {
+				if t.Guard != nil {
+					used = append(used, fmt.Sprintf("guard on %s -> %s", s.Name, t.Target))
+				}
+				if len(t.Emits) > 0 {
+					used = append(used, fmt.Sprintf("emits on %s -> %s", s.Name, t.Target))
+				}
+			}
+		}
+		if len(used) > 0 {
+			diags = append(diags, Diagnostic{
+				Severity: SeverityWarning,
+				Ref:      sm.Ref,
+				Message: fmt.Sprintf("uses Cardinal fields not yet reflected in generated C++ (%s); state_machine.hpp.tmpl only generates states and bare event/target transitions today (see docs/cardinal.md)",
+					joinComma(used)),
+			})
+		}
+	}
+	return diags
+}
+
+func joinComma(items []string) string {
+	out := ""
+	for i, s := range items {
+		if i > 0 {
+			out += ", "
+		}
+		out += s
+	}
+	return out
 }

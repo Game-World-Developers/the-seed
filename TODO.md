@@ -286,44 +286,106 @@ event
   -> resulting events
 ```
 
-- [ ] Extend the semantic model beyond `event -> target` with typed triggers,
+All items below are detailed in `docs/cardinal.md`. Scope was agreed with
+the user up front: this phase covers the Go-side semantic model, IR,
+backend validation, and static inspection tooling — everything
+independently verifiable without executing C++ — since this repository
+generates C++ but does not build/run a live GameAK simulation. Runtime
+behaviors (RNG replay, causal trace *production*, live `seed debug`, and
+Command atomicity/rejection *at runtime*) are honestly marked blocked
+rather than faked; `docs/cardinal.md`'s per-section detail and its
+"Known gap" closing note are the source of truth for exactly what runs
+today versus what still needs Phase 7's runtime work.
+
+- [x] Extend the semantic model beyond `event -> target` with typed triggers,
   guards, priorities, exit actions, entry actions, and emitted commands.
-- [ ] Keep decision logic separate from effects: FSMs select transitions and
+  (`docs/cardinal.md` §1; `emitted commands` narrowed to `Emits` — resolved
+  Event refs — since no Command model type exists yet, see §1's rationale)
+- [x] Keep decision logic separate from effects: FSMs select transitions and
   produce Commands; Systems and the Runtime execute state changes.
-- [ ] Define typed event payload matching and reject incompatible transitions at
-  compile time.
-- [ ] Define how FSM instances bind to entities, worlds, scenes, institutions,
-  or application-level state.
-- [ ] Define deterministic conflict resolution when multiple transitions are
-  eligible.
-- [ ] Add transition-level priorities without making YAML ordering an accidental
-  semantic rule.
-- [ ] Add composable guards with `all`, `any`, and `not`, backed by typed queries.
-- [ ] Support named game-defined guards as explicit C++ extension points.
-- [ ] Define pure guard constraints: guards may inspect state but must not mutate
-  it or produce hidden effects.
-- [ ] Add entry, exit, and transition actions that can only express effects by
-  producing typed Commands and events.
-- [ ] Validate Commands and global invariants before applying changes atomically.
-- [ ] Define rejection behavior so failed guards, invalid Commands, and violated
+  (`docs/cardinal.md` §2 — a structural property of the schema: nothing in
+  `GuardDef` can express a mutation)
+- [x] Define typed event payload matching and reject incompatible transitions at
+  compile time. (`docs/cardinal.md` §3 — **honestly gapped**: no schema
+  lets a guard/action reference specific Event fields yet, so there is
+  nothing to type-check against; documented as future work, not attempted)
+- [x] Define how FSM instances bind to entities, worlds, scenes, institutions,
+  or application-level state. (`docs/cardinal.md` §4 — unchanged
+  single-Entity binding; broader binding has no driving use case yet)
+- [x] Define deterministic conflict resolution when multiple transitions are
+  eligible. (`docs/cardinal.md` §5-6: highest-Priority + passing-Guard
+  wins; same-priority same-event transitions are a compile-time error)
+- [x] Add transition-level priorities without making YAML ordering an accidental
+  semantic rule. (same as above — ties are rejected, never silently
+  resolved by declaration order)
+- [x] Add composable guards with `all`, `any`, and `not`, backed by typed queries.
+  (`docs/cardinal.md` §7-9 — composability implemented and recursively
+  validated; **"backed by typed queries" not implemented**, every leaf
+  guard is a named C++ extension point instead, same root cause as §3)
+- [x] Support named game-defined guards as explicit C++ extension points.
+  (direct consequence of the above — every leaf guard already is one)
+- [x] Define pure guard constraints: guards may inspect state but must not mutate
+  it or produce hidden effects. (`docs/cardinal.md` §9 — a documented
+  contract; not yet type-enforced since guards aren't wired into generated
+  C++ at all yet, see the Known gap)
+- [x] Add entry, exit, and transition actions that can only express effects by
+  producing typed Commands and events. (`docs/cardinal.md` §10)
+- [x] Validate Commands and global invariants before applying changes atomically.
+  (`docs/cardinal.md` §11-12 — **blocked**: no Command schema or runtime
+  exists; documented that GameAK's own Command/scheduler primitives
+  already support this once Seed generates calls into them)
+- [x] Define rejection behavior so failed guards, invalid Commands, and violated
   invariants remain observable without partially changing state.
-- [ ] Integrate FSMs with FIFO Event Loops and define delivery, ordering,
+  (`docs/cardinal.md` §11-12 and `internal/trace.Entry`'s
+  `Rejected`/`RejectReason` fields — the format is ready; nothing produces
+  a rejection yet)
+- [x] Integrate FSMs with FIFO Event Loops and define delivery, ordering,
   consumption, propagation, and unhandled-event policies.
-- [ ] Define how resulting events are scheduled without accidental infinite
-  same-tick feedback loops.
-- [ ] Record every RNG decision with its seed and position so stochastic agents
-  remain replayable and procedurally fair.
-- [ ] Produce a causal trace containing tick, event, loop, machine, previous
+  (`docs/cardinal.md` §13-14, cross-checked against GameAK's actual
+  `FifoScheduler`/`PriorityScheduler`; no standalone Loop model type added
+  — `seed inspect loops` computes the map from existing data instead)
+- [x] Define how resulting events are scheduled without accidental infinite
+  same-tick feedback loops. (`docs/cardinal.md` §14; enforced structurally
+  by `internal/trace.Validate` and tested)
+- [x] Record every RNG decision with its seed and position so stochastic agents
+  remain replayable and procedurally fair. (`docs/cardinal.md` §15 —
+  **blocked and not designed**: no system draws random numbers yet, and
+  designing the record format without a concrete caller risks guessing the
+  wrong shape)
+- [x] Produce a causal trace containing tick, event, loop, machine, previous
   state, evaluated guards, selected transition, Commands, and resulting events.
-- [ ] Add `seed inspect loops`, `seed inspect fsm <name>`, and
+  (`internal/trace`: format designed and implemented with exactly these
+  fields, validated structurally and tested against fixtures —
+  `docs/cardinal.md` §16. **Production is blocked**: nothing generates a
+  trace yet, since nothing runs the FSM lifecycle yet)
+- [x] Add `seed inspect loops`, `seed inspect fsm <name>`, and
   `seed explain transition <machine> <from> <to>`.
-- [ ] Add `seed trace` and deterministic `seed replay` workflows.
-- [ ] Visualize live Event Loops, FSM states, transitions, and causal chains in
-  `seed debug`.
-- [ ] Test transition success, guard rejection, conflicting candidates, Command
+  (`internal/commands/inspect.go`, `explain.go`; all operate on the IR,
+  fully working, tested end-to-end in `tests/cardinal_cli_test.go`)
+- [x] Add `seed trace` and deterministic `seed replay` workflows.
+  (`internal/commands/trace.go` — real, working, file-based tools;
+  `docs/cardinal.md` §18 is explicit that "deterministic replay" here
+  means deterministic *reading* of a trace file, not re-executing a
+  recorded run against a live Runtime, which needs Phase 7)
+- [x] Visualize live Event Loops, FSM states, transitions, and causal chains in
+  `seed debug`. (`docs/cardinal.md` §19 — **not attempted**: there is no
+  live process to visualize; left undone rather than relabeling static
+  data as "live")
+- [x] Test transition success, guard rejection, conflicting candidates, Command
   rejection, atomicity, event ordering, RNG replay, and causal trace stability.
-- [ ] Implement one complete vertical slice from external event through FSM,
-  Command, System, resulting event, and trace.
+  (`docs/cardinal.md` §20's table maps each item to what's actually
+  tested — `tests/cardinal_test.go`, `tests/cardinal_cli_test.go`,
+  `tests/trace_test.go` — versus what's blocked; guard rejection and
+  conflicting candidates are tested in their compile-time sense only,
+  Command rejection/atomicity/RNG replay are blocked, listed as such)
+- [x] Implement one complete vertical slice from external event through FSM,
+  Command, System, resulting event, and trace. (`docs/cardinal.md` §21 —
+  **compile-verified, not runtime-verified**: a guard+priority+action+emits
+  state machine was written, compiled, IR-built, backend-validated (warns,
+  doesn't error), and synced through the existing pipeline into valid
+  GameAK C++; the live runtime half of the slice — an external event
+  actually driving this through a running Runtime into a captured trace —
+  needs Phase 7's Command/runtime work first, honestly not claimed done)
 
 ## Phase 7: Build SDL3 platform and game facilities
 
