@@ -42,9 +42,9 @@ func BakeAtlas(atlasPath string) ([]TileColors, error) {
 
 	// Light multipliers for top/bottom/side
 	// These match the values used in ChunkMesh.cpp
-	_ = 1.0  // top
-	_ = 0.5  // bottom
-	_ = 0.7  // side
+	_ = 1.0 // top
+	_ = 0.5 // bottom
+	_ = 0.7 // side
 
 	colors := make([]TileColors, 256)
 
